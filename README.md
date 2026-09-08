@@ -18,7 +18,7 @@ risk-control system to worry about, and you do not need another person to help r
 Rei's inspiration and original design come from the upstream
 [project by Akirami](https://github.com/A-kirami/matcha). Rei is an independent native macOS
 implementation: the upstream project uses Vue and Tauri, while Rei uses AppKit and SwiftUI and
-depends only on Apple system frameworks.
+uses Apple system frameworks alongside bundled media codecs.
 
 ## Releases
 
@@ -97,9 +97,8 @@ does not wait for a consumer to connect before allowing simulated messages.
 
 ## Architecture
 
-客户端操作及按协议显示的能力范围见[客户端能力与协议契约](docs/client-capabilities.md)。
-
-本地构建并启动可运行 `./script/build_and_run.sh --verify`；它复用 Makefile 的 Debug 构建目标，并验证应用进程启动。
+See [Client Capabilities and Protocol Contracts](docs/client-capabilities.md) for available
+operations, protocol-specific behavior, persistence guarantees, and test coverage.
 
 - `ReiCore` contains the domain model and storage. Users, groups, and messages are persisted with
   SwiftData, while media uses content-addressed file storage. This module knows nothing about any
@@ -134,28 +133,31 @@ JSON Lines records and a structured summary, without overwriting previous export
 
 ## Build and Run
 
-### 客户端演示模式
+### Demo Mode
 
 ```sh
 ./script/build_and_run.sh --demo
 ./script/build_and_run.sh --debug --demo
 ```
 
-`--demo` 使用独立的内存数据库、演示偏好和媒体缓存，固定创建一个群聊与一个私聊。
-每 4 秒模拟一次收发或状态变化，并用平缓滚动跟随；约两分钟完成一轮，随后重新开始。
-切换会话或手动滚动会暂停自动演示，顶部 Demo 菜单可暂停、继续和控制跟随。
-正常启动不读取演示数据，演示也不会打开正常聊天数据库；无需连接机器人即可观看。
+Demo mode uses an isolated in-memory database, preferences, and media cache with one group chat
+and one private conversation. It simulates a message or state change every four seconds and
+repeats the sequence after approximately two minutes. Switching conversations or scrolling manually
+pauses playback; the **Demo** menu controls playback and automatic scrolling. The demo never opens
+the normal chat database and does not require an external bot.
 
-演示自动启动本机 Milky 服务和内置客户端：仅监听 `127.0.0.1` 的系统分配端口，使用每次连接生成的令牌。
-左栏连接状态显示真实 API 往返耗时，每 4 秒刷新；它测量 `get_login_info`，不代表事件 WebSocket 或外部网络的 RTT。
-点击连接状态可断开或重新连接；暂停消息不会断开协议，关闭演示窗口会停止客户端和监听器。
+An embedded Milky client connects to a local service on an automatically assigned `127.0.0.1`
+port using a token generated for each connection. The sidebar reports the actual `get_login_info`
+API round-trip time every four seconds. Click the connection status to disconnect or reconnect.
+Pausing playback keeps the protocol connected; closing the demo window stops both client and service.
 
-展示内容包括多语言文本、提及、引用、图片、循环 GIF、音频、视频、文件、嵌套转发、撤回、
-群消息 reaction，以及右栏的群公告、共享文件、精华和资料点赞。Raw Events 展示内置客户端的真实 API 请求和事件流量。
-Akame 图案用于演示群和机器人头像及图片消息；旋转 GIF 自动播放，并遵循系统减弱动态效果设置。
+The showcase includes multilingual text, mentions, replies, images, animated GIFs, audio, video,
+files, nested forwards, recalls, group reactions, announcements, shared files, highlights, and
+profile likes. Raw Events displays the embedded client's actual API requests and event traffic.
+The Akame artwork appears in avatars and image messages; its animated variant respects Reduce Motion.
 
-素材位于 `Sources/ReiUI/Resources/Showcase`，随应用打包。重新生成旋转 GIF、提示音和视频可运行
-`make showcase-media`，使用系统 ImageIO 和仓库内置的 FFmpeg。
+Assets are bundled from `Sources/ReiUI/Resources/Showcase`. Run `make showcase-media` to regenerate
+the animated GIF, sound, and video using ImageIO and the bundled FFmpeg build.
 
 ### Prerequisites
 
@@ -193,9 +195,10 @@ therefore be used for forward-compatibility testing without changing repository 
 
 ### Build and Run with Xcode
 
-Open the project with the selected Xcode installation:
+Prepare the bundled media tools, then open the project with the selected Xcode installation:
 
 ```sh
+make media-tools
 xed Rei.xcodeproj
 ```
 
@@ -206,30 +209,28 @@ tests used by the application, so `swift run` does not produce a runnable Rei ap
 
 ### Build and Run from the Command Line
 
-The command-line build uses the same shared scheme and places Derived Data in a deterministic,
-Git-ignored directory:
+Build and launch a Debug app for the host architecture, then verify that its process started:
 
 ```sh
-xcodebuild \
-  -project Rei.xcodeproj \
-  -scheme "Rei App" \
-  -configuration Debug \
-  -destination "generic/platform=macOS" \
-  -derivedDataPath .build/xcode \
-  build
+./script/build_and_run.sh --verify
 ```
 
-After a successful build, launch the app with:
+The script prepares the media tools through `make build`, asks any running Rei process to exit,
+and launches `.build/xcode/Build/Products/Debug/Rei.app`. Use `--debug` to launch under LLDB or
+`--logs` to stream application logs.
+
+To build without launching, use the repository targets:
 
 ```sh
-open .build/xcode/Build/Products/Debug/Rei.app
+make build BUILD_CONFIGURATION=Debug BUILD_ARCHS="$(uname -m)"
+make build
 ```
 
-Debug builds use local ad-hoc signing and do not require an Apple Developer account. For a Release
-build, change `-configuration Debug` to `-configuration Release`; the result is written to
-`.build/xcode/Build/Products/Release/Rei.app`. Distribution builds are created only by the
-protected release workflow. See [RELEASING.md](RELEASING.md) for signing, notarization, packaging,
-and recovery details.
+The second command produces an unsigned Universal 2 Release app at
+`.build/xcode/Build/Products/Release/Rei.app`. Both commands prepare the required media tools and
+use the shared Xcode scheme. Local builds do not require an Apple Developer account. Distribution
+builds use the protected release workflow; see [RELEASING.md](RELEASING.md) for signing,
+notarization, packaging, and recovery details.
 
 App Sandbox is currently disabled because protocol clients may provide arbitrary local absolute
 paths for message attachments. A sandboxed app cannot read those paths without user-mediated
@@ -270,11 +271,12 @@ The command lists source roots explicitly to avoid generated files under `.build
 ## Testing
 
 ```sh
-swift test
+make test
 ```
 
-The test suite lives in SwiftPM to preserve white-box access to package internals. This command
-builds only SwiftPM modules and tests; it does not produce an `.app` bundle. Ensure that
+The test suite lives in SwiftPM to preserve white-box access to package internals. `make test`
+first builds the host-architecture media tools, then runs `swift test` with warnings treated as
+errors and `REI_TEST_FFMPEG` pointing to the prepared executable. It does not produce an `.app` bundle. Ensure that
 `xcode-select` or `DEVELOPER_DIR` points to the full Xcode installation before running it.
 
 Live interoperability tests against a real `nonebot-adapter-milky` process are disabled by
@@ -285,9 +287,16 @@ written to the repository.
 
 ## Dependencies
 
-The project has no third-party dependencies. Persistence uses SwiftData; the interface uses SwiftUI
-with narrowly scoped AppKit components; and networking, cryptography, and file type identification
-use Network.framework, CryptoKit, and UniformTypeIdentifiers, respectively.
+The Swift package has no external package dependencies. Persistence uses SwiftData; the interface
+uses SwiftUI and AppKit; networking, cryptography, and file type identification use
+Network.framework, CryptoKit, and UniformTypeIdentifiers.
+
+Media conversion uses the vendored SILK C decoder and a bundled FFmpeg executable built with
+LAME, OpenCORE AMR, and Speex. Versions and source checksums are pinned in
+[`script/media-dependencies.lock`](script/media-dependencies.lock); pkgconf is built as a build-time
+tool. The first media build requires network access to download upstream sources. No Homebrew
+installation is required. See [bundled media tools](RELEASING.md#bundled-media-tools) and the
+[SILK notice](Sources/CSilk/NOTICE.md) for source, build, and licensing details.
 
 ## License
 

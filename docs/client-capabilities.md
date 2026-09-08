@@ -1,79 +1,145 @@
-# 客户端能力与协议契约
+# Client Capabilities and Protocol Contracts
 
-客户端根据当前运行的协议显示操作；没有运行会话时，采用设置中选中的协议。运行中修改协议设置不会提前改变客户端能力，重新连接后才生效。协议未定义的操作入口隐藏，不发送自创扩展。
+The client exposes operations supported by the running protocol. With no active session, it uses
+the protocol selected in settings. Changing settings during a session takes effect after
+reconnecting. Operations absent from a protocol are hidden; Rei does not invent wire extensions.
 
-| 能力 | OneBot V11 | OneBot V12 | Milky 1.3 | 客户端入口 |
+| Capability | OneBot V11 | OneBot V12 | Milky 1.3 | Client entry point |
 | --- | --- | --- | --- | --- |
-| 回复消息 | `reply.id` | `reply.message_id`、`user_id` | `reply.message_seq` | 悬停或右键回复，编辑区显示引用，点击引用跳转 |
-| 撤回消息 | `delete_msg`、`group_recall` / `friend_recall` | `delete_message`、群聊/私聊删除事件 | 分场景撤回 API、`message_recall` | 有权限时显示撤回，确认后执行 |
-| 群消息表情回应 | 未定义 | 未定义 | `send_group_message_reaction`、`group_message_reaction` | 表情选择、数量、参与者提示、点击切换自己的回应 |
-| 管理员变更 | `set_group_admin`、`group_admin` | 未定义 | `set_group_member_admin`、`group_admin_change` | 群成员操作菜单，仅群主可操作 |
-| 成员禁言 / 解除 | `set_group_ban`、`group_ban` | 未定义 | `set_group_member_mute`、`group_mute` | 群成员菜单的 Timeout / Remove Timeout |
-| 全员禁言 / 解除 | `set_group_whole_ban`、`group_ban` | 未定义 | `set_group_whole_mute`、`group_whole_mute` | 右侧 Members 面板底部 |
-| 群聊戳一戳 | `notify.poke` 事件 | 未定义 | `send_group_nudge`、`group_nudge` | 消息右键 Nudge |
-| 好友戳一戳 | 未纳入标准能力 | 未定义 | `send_friend_nudge`、`friend_nudge` | 私聊工具栏、消息右键 |
+| Reply | `reply.id` | `reply.message_id`, `user_id` | `reply.message_seq` | Hover or context-menu reply; composer preview; click a reference to navigate |
+| Recall | `delete_msg`, `group_recall` / `friend_recall` | `delete_message`, group/private deletion events | Context-specific recall APIs, `message_recall` | Available with permission; requires confirmation |
+| Group reactions | Not defined | Not defined | `send_group_message_reaction`, `group_message_reaction` | Emoji picker, counts, participant tooltips, and toggling your reaction |
+| Administrator changes | `set_group_admin`, `group_admin` | Not defined | `set_group_member_admin`, `group_admin_change` | Group member menu; owner only |
+| Member mute/unmute | `set_group_ban`, `group_ban` | Not defined | `set_group_member_mute`, `group_mute` | Timeout / Remove Timeout in the member menu |
+| Group-wide mute/unmute | `set_group_whole_ban`, `group_ban` | Not defined | `set_group_whole_mute`, `group_whole_mute` | Bottom of the Members panel |
+| Group nudge | `notify.poke` event | Not defined | `send_group_nudge`, `group_nudge` | Message context menu: Nudge |
+| Friend nudge | Not included as a standard capability | Not defined | `send_friend_nudge`, `friend_nudge` | Private conversation toolbar and message context menu |
 
-群成员加入、移除、好友请求等已有通路继续使用 `PlatformService`。模拟操作由所选身份发起；机器人 API 操作由当前会话的机器人身份发起。权限在平台服务验证，UI 的权限判断只用于提前隐藏或禁用入口。
+Membership changes, friend requests, and other simulated actions pass through `PlatformService`.
+Operator actions use the selected identity; bot API actions use the active session's bot identity.
+The platform service enforces permissions. UI checks only hide or disable unavailable actions early.
 
-## 契约来源与测试
+## Contract References and Tests
 
-测试预期按下面的官方定义独立编写，检查字段、类型、请求作用域及状态变化；存储幂等、身份隔离和草稿行为属于 Rei 的产品约束，不冒充协议强制要求。
+Contract tests check fields, types, request scope, and state transitions against the protocol
+references below. Storage idempotency, identity isolation, and draft behavior are Rei product
+constraints, not protocol requirements.
 
-- [OneBot V11 通知](https://github.com/botuniverse/onebot-11/blob/master/event/notice.md)与[消息段](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md)：撤回通知和 `friend_add` 使用数值 ID，回复引用使用 `id`。
-- [OneBot V12 群通知](https://12.onebot.dev/interface/group/notice-events/)、[用户通知](https://12.onebot.dev/interface/user/notice-events/)、[消息段](https://12.onebot.dev/interface/message/segments/)与[消息动作](https://12.onebot.dev/interface/message/actions/)：ID 使用字符串；群消息撤回区分发送者 `recall` 和管理员 `delete`；收到的回复包含原发送者。
-- [Milky 消息 API](https://milky.ntqqrev.org/api/message)、[群聊 API](https://milky.ntqqrev.org/api/group)、[事件](https://milky.ntqqrev.org/struct/Event)与[发送消息段](https://milky.ntqqrev.org/struct/OutgoingSegment)：消息序号在会话内解析；reaction 的 `face` 与 `emoji` 是不同类型，缺省为 `face`，缺省操作为添加；撤回消息不作为可用历史返回。
-- [Discord 回复](https://support.discord.com/hc/en-us/articles/360057382374-Replies-FAQ)仅作为交互参考，不作为协议行为依据。
+- OneBot V11 [notices](https://github.com/botuniverse/onebot-11/blob/master/event/notice.md) and
+  [message segments](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md): recall
+  notices and `friend_add` use numeric IDs; replies use `id`.
+- OneBot V12 [group notices](https://12.onebot.dev/interface/group/notice-events/),
+  [user notices](https://12.onebot.dev/interface/user/notice-events/),
+  [message segments](https://12.onebot.dev/interface/message/segments/), and
+  [message actions](https://12.onebot.dev/interface/message/actions/): IDs are strings; group
+  deletion distinguishes sender `recall` from administrator `delete`; incoming replies identify
+  the original sender.
+- Milky [message APIs](https://milky.ntqqrev.org/api/message),
+  [group APIs](https://milky.ntqqrev.org/api/group), [events](https://milky.ntqqrev.org/struct/Event),
+  and [outgoing segments](https://milky.ntqqrev.org/struct/OutgoingSegment): message sequences are
+  resolved within a conversation; reaction types distinguish `face` from `emoji`, default to
+  `face`, and default to adding a reaction; recalled messages are unavailable as history.
+- [Discord replies](https://support.discord.com/hc/en-us/articles/360057382374-Replies-FAQ) are an
+  interaction reference only, not a protocol authority.
 
-`MessageProtocolContractTests` 覆盖协议输入输出，`MessageInteractionTests` 覆盖平台状态与事件，`ReactionMigrationTests` 从真实 V1 SwiftData 文件验证升级和重开，`ChatNavigationTests` 覆盖草稿、身份权限及协议能力。
+`MessageProtocolContractTests` covers protocol input and output; `MessageInteractionTests` covers
+platform state and events; `ReactionMigrationTests` verifies migration and reopening from real V1
+SwiftData files; `ChatNavigationTests` covers drafts, identity permissions, and protocol capabilities.
 
-## 状态与兼容
+## State and Compatibility
 
-Reaction 与消息一起持久化，计数从参与者集合派生。重复添加、重复取消不会产生额外变化；最后一个参与者取消后移除该回应。撤回保留本地占位并清除回应，引用实时显示撤回或不可用状态。V1 数据通过 V2 轻量迁移保留。
+Reactions persist with messages, with counts derived from participant sets. Repeated additions or
+removals are idempotent; removing the last participant removes the reaction. Recall preserves a
+local placeholder and clears reactions. Reply references reflect recalled or unavailable messages.
+V1 data is preserved through the V2 lightweight migration.
 
-Milky 的引用解析接口现在要求完整 `Chat`，不再维护最近会话缓存。OneBot 消息编码器接收存储依赖以补全 V12 的引用发送者。嵌入这些模块的调用方需要传入上述参数。
+Milky reply resolution requires a complete `Chat` rather than a recent-conversation cache. OneBot
+message encoders receive storage access to resolve the V12 reply sender. Callers embedding these
+modules must supply those dependencies.
 
-## 补全后的能力与验收
+## Implemented Features and Verification
 
-以下项目对应本次明确列出的补全目标；它不是三个协议全部可选接口的全覆盖声明。
+This table describes the implemented feature paths and their tests. It does not claim coverage of
+all optional interfaces in the three protocols.
 
-| 目标 | 完整路径 | 主要验收 |
+| Feature | Implementation scope | Primary tests |
 | --- | --- | --- |
-| Milky 会话置顶 | `get_peer_pins` / `set_peer_pin`、`peer_pin_change`、持久状态、侧栏 Pinned 分区；包含临时会话 | `MilkyConversationContractTests`、`ConversationContentTests`；侧栏按观察状态派生 |
-| Milky 已读 | `mark_message_as_read` 保存单账号、单会话的读位置；只单调推进，清空历史后重置 | `MilkyConversationContractTests`、`MilkyFileContractTests.atomicMessageState` |
-| 资料点赞 | Milky `send_profile_like` 和 V11 `send_like` 保存真实计数；V11 每次和每日限额均为 10 | `MilkyConversationContractTests`、`OneBotCapabilityContractTests.profileLikes` |
-| 群公告 | 创建、图片、查询、删除；权限检查、完整实体、图片可下载；客户端 Announcements 面板 | `MilkyPlatformContractTests`、`MilkyConversationContractTests`、`ConversationContentTests` |
-| 群精华消息 | 设置、取消、分页、完整消息与操作者信息、`group_essence_message_change`；客户端 Highlights 面板与消息跳转 | `MilkyPlatformContractTests`、`MilkyConversationContractTests`、`ConversationContentTests` |
-| Milky 文件管理 | 私聊/群上传、下载链接、文件夹列表和创建/重命名/删除、文件移动/重命名/删除/永久化；文件目录与资产字节分开建模 | `MilkyPlatformContractTests.groupFileLifecycle`、`MilkyFileContractTests`、`ConversationContentTests.fileLifecycle` |
-| 私聊文件通知 | `friend_file_upload`、真实 TriSHA1、发送方向与账号范围校验；群上传继续提供 `group_file_upload` 和 V11 `group_upload` | `MilkyFileContractTests.privateFile`、`ConversationFeaturePersistenceTests.fingerprints` |
-| OneBot V12 文件 | `upload_file`、`get_file`、分片上传/获取；支持 URL / path / data、HTTP 请求头、SHA256、乱序块和范围检查 | `OneBotCapabilityContractTests` |
-| OneBot V11 媒体与转发 | `get_image`、`get_record`、`get_forward_msg`；完整合并转发节点、可读取文件、真实转码 | `OneBotCapabilityContractTests`、`MediaConversionTests` |
-| CQ 码 | V11 字符串输入、`auto_escape`、单次实体转义、消息段参数、`raw_message` 输出 | `OneBotCapabilityContractTests.cqSyntax/cqInput/cqOutput` |
-| V12 兼容性 | 独立用户/成员字段、按版本划分动作清单、标准错误码、跨机器人消息隔离 | `OneBotCapabilityContractTests.v12EntityNames/versionBoundaries/accountIsolation` |
-| 群资料与申请 UI | 群改名、名片、专属头衔；发起好友/入群请求、邀请机器人；权限和协议决定可见入口 | `ConversationManagementTests` |
-| 媒体 UI | 语音/视频播放、进度与音量、图片大图、文件 Quick Look 与另存为；转发展开全部节点并隔离引用范围 | `AttachmentPresentationTests`、`AttachmentLayoutTests`、`MediaConversionTests` |
-| 实际资源传输 | HTTP 返回真实字节；短期签名绑定文件 ID、名称和期限，不使用 API Token 充当资源链接凭证 | `ProtocolResourceTests` |
-| 持久化与并发 | V1→V2→V3 迁移；新状态重开保留；并发改名/下载不丢字段；删除后不复活；失效读标记和精华拒绝写入 | `ReactionMigrationTests`、`ConversationFeaturePersistenceTests`、`MilkyFileContractTests` |
+| Milky conversation pins | `get_peer_pins`, `set_peer_pin`, `peer_pin_change`, persistent state, and the sidebar Pinned section; includes temporary conversations | `MilkyConversationContractTests`, `ConversationContentTests` |
+| Milky read positions | `mark_message_as_read` stores a position per account and conversation; advances monotonically and resets when history is cleared | `MilkyConversationContractTests`, `MilkyFileContractTests.atomicMessageState` |
+| Profile likes | Milky `send_profile_like` and V11 `send_like` persist counts; V11 enforces per-call and daily limits of 10 | `MilkyConversationContractTests`, `OneBotCapabilityContractTests.profileLikes` |
+| Group announcements | Create, query, and delete; permission checks, complete entities, downloadable images, and the Announcements panel | `MilkyPlatformContractTests`, `MilkyConversationContractTests`, `ConversationContentTests` |
+| Group highlights | Set, unset, paginate, and return complete message/operator details; `group_essence_message_change`, Highlights panel, and message navigation | `MilkyPlatformContractTests`, `MilkyConversationContractTests`, `ConversationContentTests` |
+| Milky file management | Private/group uploads, download URLs, folder listing/creation/renaming/deletion, and file moving/renaming/deletion/permanence; directory entries are separate from asset bytes | `MilkyPlatformContractTests.groupFileLifecycle`, `MilkyFileContractTests`, `ConversationContentTests.fileLifecycle` |
+| Private file notifications | `friend_file_upload`, actual TriSHA1 fingerprints, direction and account checks; group uploads emit `group_file_upload` and V11 `group_upload` | `MilkyFileContractTests.privateFile`, `ConversationFeaturePersistenceTests.fingerprints` |
+| OneBot V12 files | `upload_file`, `get_file`, fragmented upload/retrieval; URL/path/data sources, HTTP headers, SHA-256, out-of-order chunks, and range checks | `OneBotCapabilityContractTests` |
+| OneBot V11 media and forwards | `get_image`, `get_record`, `get_forward_msg`; complete merged-forward nodes, readable files, and media conversion | `OneBotCapabilityContractTests`, `MediaConversionTests` |
+| CQ codes | V11 string input, `auto_escape`, single-pass entity escaping, segment parameters, and `raw_message` output | `OneBotCapabilityContractTests.cqSyntax/cqInput/cqOutput` |
+| V12 compatibility | Separate user/member fields, version-specific action lists, standard errors, and message isolation between bots | `OneBotCapabilityContractTests.v12EntityNames/versionBoundaries/accountIsolation` |
+| Group management and request UI | Group names, member cards, titles, friend/join requests, and bot invitations; visibility follows permissions and protocol capabilities | `ConversationManagementTests` |
+| Media UI | Audio/video playback, progress and volume, full-size images, Quick Look and Save As; all forward nodes expand with isolated reply scopes | `AttachmentPresentationTests`, `AttachmentLayoutTests`, `MediaConversionTests` |
+| Resource delivery | HTTP serves actual bytes; short-lived signatures bind file ID, name, and expiry without using API tokens as download credentials | `ProtocolResourceTests` |
+| Persistence and concurrency | V1 → V2 → V3 migrations, reopening persisted state, concurrent rename/download updates, no resurrection after deletion, and rejection of stale read positions or highlights | `ReactionMigrationTests`, `ConversationFeaturePersistenceTests`, `MilkyFileContractTests` |
 
-视觉沿用 macOS 的系统侧栏材质与 Liquid Glass。左右辅助栏的材质连续覆盖顶部、列表和底部区域，列表不再单独铺设灰底；浮动输入区、发送按钮、会话工具和事件筛选保留玻璃效果。浅色、深色及窗口激活状态由系统处理。
+## Workspace and Conversation Tools
 
-主窗口采用左侧导航、中央聊天、右侧检查器。左栏顶部提供新建与搜索，底部固定连接状态、设置和当前发言身份。右栏通过 Conversation / Events 页签切换会话工具与协议流量；可收起和调整宽度，事件列表与 JSON 详情之间的分隔线也可拖动。
+The main window has navigation on the left, chat in the center, and an inspector on the right.
+The sidebar places creation and search controls at the top, with connection status, settings, and
+the current speaking identity at the bottom. The inspector switches between **Conversation** and
+**Events**, can be collapsed or resized, and has a draggable divider between event lists and JSON
+details.
 
-Conversation 内提供 Overview、Members、Files、Announcements、Highlights、Settings；按当前协议与会话类型筛选。成员、资料和共享内容直接在右栏操作，新建内容或提交请求仍使用独立编辑弹窗。V11 只显示其支持的上传事件和资料点赞等入口；V12 保留基础资料与成员列表，隐藏协议未定义的管理操作。切换会话会重建对应编辑状态；切换协议时，失效的栏目自动返回 Overview。聊天草稿继续按会话与发言身份独立保存。
+Conversation tools include Overview, Members, Files, Announcements, Highlights, and Settings,
+filtered by protocol and conversation type. Members, profiles, and shared content are managed in
+the inspector; creation and request submission use separate editing sheets. V11 exposes supported
+upload notifications and profile likes. V12 retains basic profiles and member lists while hiding
+undefined management operations. Changing conversations recreates editing state; changing protocols
+returns unavailable sections to Overview. Drafts remain separate per conversation and speaking identity.
 
-`WorkspaceLayoutTests` 检查协议栏目边界，并用填充数据渲染 320 点宽的工具面板、980 / 1320 点宽的浅色和深色窗口。输入区采用上方文本、下方附件与发送操作的布局，避免横向挤压文本编辑区。
+System sidebar materials span the full height of both auxiliary columns. The floating composer,
+send button, conversation tools, and event filters use Liquid Glass. macOS handles light/dark
+appearance and window activation. The composer places text above attachment and send controls to
+preserve editing space.
 
-文件名属于共享文件条目，文件哈希属于不可变字节。同一内容以不同名称上传、或条目改名后，各自的签名下载链接仍保留正确名称。目录中的下载次数记录有效下载请求的发起，不将后续网络传输失败当成平台可观测的完成事件。
+`WorkspaceLayoutTests` checks protocol-specific sections and renders populated 320-point tool
+panels and 980/1320-point windows in light and dark appearances.
 
-V11 每日点赞额度以模拟器的 UTC 日期计数，累计计数独立保留。默认上传文件为永久文件；带过期时间的模拟文件可以通过永久化接口清除有效期。群、用户或消息被删除时，其从属状态同步清理。
+## File and Account State
 
-## 内置媒体转换与构建
+File names belong to shared-file entries; hashes describe immutable bytes. Identical content
+uploaded under different names, or renamed entries, retains the correct names in signed download
+URLs. Download counts record valid download requests starting, not successful completion of a later
+network transfer.
 
-QQ SILK 由固定源码版本的内置 C 解码器转为 PCM/WAV；其他音视频格式使用随应用分发的 FFmpeg 9.0.1。客户端和 OneBot `get_record` 共用 `MediaConversionService`，不依赖运行机器的 Homebrew，也不对协议输入执行 shell 命令。
+V11 daily like quotas use the simulator's UTC date; cumulative counts persist independently.
+Uploads are permanent by default. Simulated expiring files can be made permanent by clearing their
+expiry through the corresponding API. Deleting groups, users, or messages cleans up dependent state.
 
-`make test` 使用源码构建的媒体工具验证 mp3、amr、wma、m4a、spx、ogg、wav、flac 往返以及视频转码；`make build` / `make archive` 同样准备匹配架构的产物。应用包含 FFmpeg 源码归档、构建配置和许可证，并通过 Xcode Copy Files / CodeSignOnCopy 嵌入。发布检查见 [RELEASING.md](../RELEASING.md)。
+## Media Conversion and Resource Hosting
 
-OneBot 使用独立资源 HTTP 监听端口。Resource Host 默认 `127.0.0.1`；机器人运行在另一台机器时，应设置为它可达的本机接口地址。Milky 在同一个 API 监听端口提供资源下载。
+A bundled C decoder converts QQ SILK to PCM/WAV. Other audio/video conversion uses bundled
+FFmpeg, pinned in [`media-dependencies.lock`](../script/media-dependencies.lock). The client and
+OneBot `get_record` share `MediaConversionService`, without requiring Homebrew or running protocol
+input through a shell.
 
-本次新增的官方依据：[Milky 系统 API](https://milky.ntqqrev.org/api/system)、[Milky 文件 API](https://milky.ntqqrev.org/api/file)、[群公告实体](https://milky.ntqqrev.org/struct/GroupAnnouncementEntity)、[精华消息实体](https://milky.ntqqrev.org/struct/GroupEssenceMessage)、[OneBot V12 文件动作](https://12.onebot.dev/interface/file/actions/)、[OneBot V11 API](https://github.com/botuniverse/onebot-11/blob/master/api/public.md)。
+`make test` prepares media tools from source and tests mp3, amr, wma, m4a, spx, ogg, wav, and flac
+round trips and video conversion. `make build` and `make archive` prepare matching architecture
+artifacts. Xcode embeds the executable through Copy Files / CodeSignOnCopy, and the app includes
+source archives, build configuration, and licenses. See [RELEASING.md](../RELEASING.md).
 
-未引入非标准 OneBot reaction 扩展。V11 匿名管理等其他未列出的接口，以及 V12 Guild/Channel 等非当前 QQ 会话模型能力，仍不能视为已经实现。没有将 Discord 的编辑、线程等交互强行映射为协议不存在的事件。
+OneBot serves resources through a separate HTTP listener. Resource Host defaults to `127.0.0.1`;
+for a bot on another machine, select a local interface address reachable by that bot. Milky serves
+resource downloads on its API listener.
+
+Additional protocol references: [Milky system APIs](https://milky.ntqqrev.org/api/system),
+[Milky file APIs](https://milky.ntqqrev.org/api/file),
+[group announcements](https://milky.ntqqrev.org/struct/GroupAnnouncementEntity),
+[group highlights](https://milky.ntqqrev.org/struct/GroupEssenceMessage),
+[OneBot V12 file actions](https://12.onebot.dev/interface/file/actions/), and
+[OneBot V11 APIs](https://github.com/botuniverse/onebot-11/blob/master/api/public.md).
+
+## Limits
+
+Rei does not introduce nonstandard OneBot reaction extensions. Unlisted operations such as V11
+anonymous administration, and V12 Guild/Channel capabilities outside the current QQ conversation
+model, must not be assumed implemented. Interactions such as Discord message editing and threads
+are not mapped onto events absent from these protocols.

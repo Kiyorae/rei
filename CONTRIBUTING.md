@@ -39,6 +39,7 @@ Apply repository formatting with `make format`, then rerun the complete gate.
 
 ## Change Guidelines
 
+- Write documentation, code comments, identifiers, and commit messages in English.
 - Preserve the boundary between `ReiCore`, transports, protocol implementations, and UI code.
 - Add regression tests for fixes and tests for new protocol behavior.
 - Keep OneBot and Milky wire behavior compatible with their documented protocol versions.
