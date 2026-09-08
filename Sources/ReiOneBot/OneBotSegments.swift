@@ -33,10 +33,14 @@ public struct OneBotSegmentCoder: Sendable {
     public let version: OneBotVersion
     /// Resolves an asset into the addressing form this protocol version wants.
     public let assetResolver: AssetResolver
+    private let store: ReiStore
+    private let selfID: String?
 
-    public init(version: OneBotVersion, assetResolver: AssetResolver) {
+    public init(version: OneBotVersion, assetResolver: AssetResolver, store: ReiStore, selfID: String? = nil) {
         self.version = version
         self.assetResolver = assetResolver
+        self.store = store
+        self.selfID = selfID
     }
 
     // MARK: - Outbound: domain -> wire
@@ -114,7 +118,8 @@ public struct OneBotSegmentCoder: Sendable {
             case .v11:
                 return Self.segment("reply", ["id": .string(messageID)])
             case .v12:
-                return Self.segment("reply", ["message_id": .string(messageID)])
+                guard let target = try? await store.message(id: messageID) else { return nil }
+                return Self.segment("reply", ["message_id": .string(messageID), "user_id": .string(target.senderID)])
             }
 
         case .poke(let userID):
@@ -137,15 +142,81 @@ public struct OneBotSegmentCoder: Sendable {
 
     // MARK: - Inbound: wire -> domain
 
+    /// Validates the supported V12 vocabulary before converting it. A failed
+    /// segment rejects the action, so the caller never sees a partial send as OK.
+    func decodeMessage(_ segments: [JSONValue]) async throws -> [MessageSegment] {
+        guard version == .v12 else { return await decode(segments) }
+        var result: [MessageSegment] = []
+        for raw in segments {
+            guard case .string(let type) = raw["type"], let data = raw["data"]?.objectValue else {
+                throw OneBotMessageError.invalid("A segment requires type and data")
+            }
+            let requiredField: String?
+            switch type {
+            case "text": requiredField = "text"
+            case "mention": requiredField = "user_id"
+            case "mention_all": requiredField = nil
+            case "image", "voice", "video", "file": requiredField = "file_id"
+            case "reply": requiredField = "message_id"
+            default: throw OneBotMessageError.unsupported(type)
+            }
+            if let requiredField {
+                guard case .string = data[requiredField] else {
+                    throw OneBotMessageError.invalid("Missing or invalid \(requiredField)")
+                }
+            }
+            guard let decoded = await decode(raw) else {
+                throw OneBotMessageError.unavailable("Unable to resolve \(type) segment")
+            }
+            result.append(decoded)
+        }
+        return result
+    }
+
     /// Decodes segments received from the framework.
     public func decode(_ segments: [JSONValue]) async -> [MessageSegment] {
         var result: [MessageSegment] = []
+        var nodes: [MessageSegment.ForwardNode] = []
         for raw in segments {
+            if version == .v11, raw["type"]?.stringValue == "node" {
+                if let node = await decodeNode(raw["data"] ?? [:]) { nodes.append(node) }
+                continue
+            }
+            if !nodes.isEmpty {
+                result.append(.forward(id: IDGenerator.requestID(), nodes: nodes))
+                nodes.removeAll()
+            }
             if let decoded = await decode(raw) {
                 result.append(decoded)
             }
         }
+        if !nodes.isEmpty { result.append(.forward(id: IDGenerator.requestID(), nodes: nodes)) }
         return result
+    }
+
+    private func decodeNode(_ data: JSONValue) async -> MessageSegment.ForwardNode? {
+        if let id = data["id"]?.stringValue {
+            guard let message = try? await store.message(id: id), !message.isRecalled,
+                selfID == nil || message.selfID == selfID
+            else { return nil }
+            let user = try? await store.user(id: message.senderID)
+            return MessageSegment.ForwardNode(
+                id: message.id, senderID: message.senderID, senderName: user?.displayName ?? message.senderID,
+                time: message.time, content: message.content
+            )
+        }
+        guard let userID = data["user_id"]?.stringValue, let nickname = data["nickname"]?.stringValue else {
+            return nil
+        }
+        let content: [MessageSegment]
+        if let segments = data["content"]?.arrayValue {
+            content = await decode(segments)
+        } else if let text = data["content"]?.stringValue {
+            content = await decode(OneBotCQCode.decode(text))
+        } else {
+            return nil
+        }
+        return MessageSegment.ForwardNode(senderID: userID, senderName: nickname, content: content)
     }
 
     private func decode(_ raw: JSONValue) async -> MessageSegment? {
@@ -223,6 +294,27 @@ public struct OneBotSegmentCoder: Sendable {
     }
 }
 
+enum OneBotMessageError: Error, LocalizedError {
+    case unsupported(String)
+    case invalid(String)
+    case unavailable(String)
+
+    var retcode: Int {
+        switch self {
+        case .unsupported: 10005
+        case .invalid: 10006
+        case .unavailable: 35000
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupported(let type): "Unsupported segment: \(type)"
+        case .invalid(let message), .unavailable(let message): message
+        }
+    }
+}
+
 /// What a media segment carries, for naming and MIME guessing.
 public enum AssetKind: String, Sendable {
     case image, record, video, file
@@ -242,6 +334,37 @@ public protocol AssetResolver: Sendable {
 
     /// Ingests a path, URL, or `base64://` payload, storing the bytes if needed.
     func asset(forReference reference: String, url: String?, kind: AssetKind) async -> Asset?
+
+    /// Imports actual bytes through the same store that resolves message media.
+    func store(data: Data, name: String) async -> Asset?
+
+    /// Reads the bytes behind a previously issued asset ID.
+    func data(for asset: Asset) async -> Data?
+    func data(for asset: Asset, range: Range<Int64>) async throws -> Data
+
+    /// Reads an upload source, including protocol-provided HTTP headers.
+    func read(from url: URL, headers: [String: String]) async throws -> Data
+
+    /// Produces an actual encoded audio file for V11's get_record action.
+    func convertAudio(_ asset: Asset, to format: String) async throws -> Asset
+    func configureResourceEndpoint(host: String, port: UInt16) async
+    func resource(id: String, token: String?) async -> ProtocolResource?
+}
+
+extension AssetResolver {
+    public func store(data: Data, name: String) async -> Asset? { nil }
+    public func data(for asset: Asset) async -> Data? { nil }
+    public func data(for asset: Asset, range: Range<Int64>) async throws -> Data {
+        throw OneBotFileError.unavailable("This asset resolver cannot read file ranges")
+    }
+    public func read(from url: URL, headers: [String: String]) async throws -> Data {
+        throw OneBotFileError.unavailable("This asset resolver cannot import files")
+    }
+    public func convertAudio(_ asset: Asset, to format: String) async throws -> Asset {
+        throw OneBotFileError.unsupported("This asset resolver cannot convert audio")
+    }
+    public func configureResourceEndpoint(host: String, port: UInt16) async {}
+    public func resource(id: String, token: String?) async -> ProtocolResource? { nil }
 }
 
 /// An asset as a peer should see it.

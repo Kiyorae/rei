@@ -25,6 +25,10 @@ public struct ConnectionSettings: Codable, Sendable, Hashable {
     /// they want that exposure, and it should be paired with a token.
     public var host: String
 
+    /// Local interface used by OneBot's separate media listener. A remote bot can
+    /// use an explicitly selected LAN address; the default exposes only loopback.
+    public var resourceHost: String
+
     public var port: UInt16
 
     /// Request path for the dial-out URL, e.g. `/onebot/v11/ws`. An empty value
@@ -52,6 +56,7 @@ public struct ConnectionSettings: Codable, Sendable, Hashable {
     public init(
         transport: TransportMode = .webSocketServer,
         host: String = "127.0.0.1",
+        resourceHost: String = "127.0.0.1",
         port: UInt16 = ConnectionSettings.defaultPort,
         path: String = "",
         accessToken: String = "",
@@ -62,6 +67,7 @@ public struct ConnectionSettings: Codable, Sendable, Hashable {
     ) {
         self.transport = transport
         self.host = host
+        self.resourceHost = resourceHost
         self.port = port
         self.path = path
         self.accessToken = accessToken
@@ -142,6 +148,7 @@ public struct ConnectionSettings: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case transport
         case host
+        case resourceHost
         case port
         case path
         case accessToken
@@ -169,6 +176,7 @@ public struct ConnectionSettings: Codable, Sendable, Hashable {
             )
         }
         host = try container.decodeIfPresent(String.self, forKey: .host) ?? "127.0.0.1"
+        resourceHost = try container.decodeIfPresent(String.self, forKey: .resourceHost) ?? "127.0.0.1"
         port = try container.decodeIfPresent(UInt16.self, forKey: .port) ?? Self.defaultPort
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         accessToken = try container.decodeIfPresent(String.self, forKey: .accessToken) ?? ""
@@ -198,6 +206,7 @@ public struct ConnectionSettings: Codable, Sendable, Hashable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(transport, forKey: .transport)
         try container.encode(host, forKey: .host)
+        try container.encode(resourceHost, forKey: .resourceHost)
         try container.encode(port, forKey: .port)
         try container.encode(path, forKey: .path)
         try container.encode(accessToken, forKey: .accessToken)

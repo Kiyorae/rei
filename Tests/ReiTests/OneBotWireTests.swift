@@ -109,8 +109,8 @@ struct OneBotWireTests {
         return try #require(frames.first?.payload)
     }
 
-    private func coder(_ version: OneBotVersion) -> OneBotSegmentCoder {
-        OneBotSegmentCoder(version: version, assetResolver: StubAssetResolver())
+    private func coder(_ version: OneBotVersion) throws -> OneBotSegmentCoder {
+        OneBotSegmentCoder(version: version, assetResolver: StubAssetResolver(), store: try ReiStore())
     }
 
     // MARK: - ID representation
@@ -361,22 +361,22 @@ struct OneBotWireTests {
 
     @Test("@everyone is at:all in v11 and mention_all in v12")
     func mentionEveryoneDiverges() async throws {
-        let v11 = await coder(.v11).encode([.mention(userID: nil)])
+        let v11 = try await coder(.v11).encode([.mention(userID: nil)])
         #expect(segmentTypes(v11) == ["at"])
         #expect(v11[0]["data"]?["qq"]?.stringValue == "all")
 
-        let v12 = await coder(.v12).encode([.mention(userID: nil)])
+        let v12 = try await coder(.v12).encode([.mention(userID: nil)])
         #expect(segmentTypes(v12) == ["mention_all"])
         #expect(v12[0]["data"]?["qq"] == nil)
     }
 
     @Test("mentioning a user is at/qq in v11 and mention/user_id in v12")
     func mentionUserDiverges() async throws {
-        let v11 = await coder(.v11).encode([.mention(userID: "123")])
+        let v11 = try await coder(.v11).encode([.mention(userID: "123")])
         #expect(segmentTypes(v11) == ["at"])
         #expect(v11[0]["data"]?["qq"]?.stringValue == "123")
 
-        let v12 = await coder(.v12).encode([.mention(userID: "123")])
+        let v12 = try await coder(.v12).encode([.mention(userID: "123")])
         #expect(segmentTypes(v12) == ["mention"])
         #expect(v12[0]["data"]?["user_id"]?.stringValue == "123")
     }
@@ -385,11 +385,11 @@ struct OneBotWireTests {
     func recordBecomesVoiceInV12() async throws {
         let asset = Asset(id: "sha-voice", name: "hi.silk", source: .inline)
 
-        let v11 = await coder(.v11).encode([.record(asset, duration: 3)])
+        let v11 = try await coder(.v11).encode([.record(asset, duration: 3)])
         #expect(segmentTypes(v11) == ["record"])
         #expect(v11[0]["data"]?["file"]?.stringValue == "id-sha-voice")
 
-        let v12 = await coder(.v12).encode([.record(asset, duration: 3)])
+        let v12 = try await coder(.v12).encode([.record(asset, duration: 3)])
         #expect(segmentTypes(v12) == ["voice"])
         // v12 addresses media by an upload ID, never by path or URL.
         #expect(v12[0]["data"]?["file_id"]?.stringValue == "id-sha-voice")
@@ -398,11 +398,17 @@ struct OneBotWireTests {
 
     @Test("reply references use id in v11 and message_id in v12")
     func replyKeyDiverges() async throws {
-        let v11 = await coder(.v11).encode([.reply(messageID: "700001")])
+        let v11 = try await coder(.v11).encode([.reply(messageID: "700001")])
         #expect(v11[0]["data"]?["id"]?.stringValue == "700001")
         #expect(v11[0]["data"]?["message_id"] == nil)
 
-        let v12 = await coder(.v12).encode([.reply(messageID: "700001")])
+        let fixture = try await makeFixture(.v12)
+        try await fixture.store.save(
+            Message(
+                id: "700001", scene: .group, peerID: fixture.group.id,
+                senderID: fixture.alice.id, selfID: fixture.bot.id, content: [.text("original")], direction: .outgoing))
+        let v12 = await OneBotSegmentCoder(version: .v12, assetResolver: StubAssetResolver(), store: fixture.store)
+            .encode([.reply(messageID: "700001")])
         #expect(v12[0]["data"]?["message_id"]?.stringValue == "700001")
         #expect(v12[0]["data"]?["id"] == nil)
     }
@@ -411,18 +417,18 @@ struct OneBotWireTests {
     func v12DropsFaceSegments() async throws {
         let content: [MessageSegment] = [.text("a"), .face(id: "12", name: "Pout"), .text("b")]
 
-        let v11 = await coder(.v11).encode(content)
+        let v11 = try await coder(.v11).encode(content)
         #expect(segmentTypes(v11) == ["text", "face", "text"])
 
         // v12 standardises no face segment, so the count itself drops.
-        let v12 = await coder(.v12).encode(content)
+        let v12 = try await coder(.v12).encode(content)
         #expect(v12.count == 2)
         #expect(segmentTypes(v12) == ["text", "text"])
     }
 
     @Test("v11 segment arrays decode back to domain message segments")
     func v11SegmentsRoundTrip() async throws {
-        let coder = coder(.v11)
+        let coder = try coder(.v11)
         let original: [MessageSegment] = [
             .reply(messageID: "700001"),
             .mention(userID: "10002"),
@@ -466,7 +472,7 @@ struct OneBotWireTests {
         #expect(stored.direction == .incoming)
     }
 
-    @Test("get_supported_actions includes send_msg")
+    @Test("get_supported_actions includes the V12 send_message action")
     func supportedActionsIsItsOwnManifest() async throws {
         let fixture = try await makeFixture(.v12)
         let reply = await fixture.adapter.handle(
@@ -475,7 +481,8 @@ struct OneBotWireTests {
 
         let actions = try #require(reply.data.arrayValue).compactMap(\.stringValue)
         #expect(!actions.isEmpty)
-        #expect(actions.contains("send_msg"))
+        #expect(actions.contains("send_message"))
+        #expect(!actions.contains("send_msg"))
         #expect(actions.contains("get_supported_actions"))
     }
 

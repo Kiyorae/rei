@@ -122,6 +122,17 @@ public actor PlatformService {
             selfID: selfID
         )
 
+        let chat = Chat(scene: scene, peerID: peerID, selfID: selfID)
+        for segment in content {
+            guard case .reply(let targetID) = segment else { continue }
+            guard let target = try await store.message(id: targetID), !target.isRecalled else {
+                throw PlatformError.messageNotFound(targetID)
+            }
+            guard target.chat == chat else {
+                throw PlatformError.notPermitted("A reply must reference a message in the same conversation")
+            }
+        }
+
         let message = Message(
             scene: scene,
             peerID: peerID,
@@ -192,8 +203,11 @@ public actor PlatformService {
             throw PlatformError.messageNotFound(id)
         }
         try await validateCanRecall(existing, operatorID: operatorID)
+        if existing.isRecalled { return existing }
 
         guard let recalled = try await store.recallMessage(id: id, by: operatorID) else {
+            // Another recall may have completed while the store actor was awaited.
+            if let current = try await store.message(id: id), current.isRecalled { return current }
             throw PlatformError.messageNotFound(id)
         }
 

@@ -209,5 +209,5 @@ private struct LiveMilkyAssetResolver: MilkyAssetResolving {
     func ingest(uri: String, kind: ReiMilky.AssetKind) async -> Asset? { nil }
     func displayName(for userID: String) async -> String { userID }
     func replyReference(messageID: String) async -> MilkyReplyReference? { nil }
-    func messageID(forSeq seq: Int64) async -> String? { nil }
+    func messageID(forSeq seq: Int64, in chat: Chat) async -> String? { nil }
 }

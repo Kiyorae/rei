@@ -27,6 +27,7 @@ public final class OneBotProtocolImplementation: ProtocolImplementation, @unchec
     let context: OneBotContext
     let segmentCoder: OneBotSegmentCoder
     private let eventEncoder: OneBotEventEncoder
+    let files: OneBotFileService
 
     public init(
         version: OneBotVersion,
@@ -37,8 +38,10 @@ public final class OneBotProtocolImplementation: ProtocolImplementation, @unchec
         self.version = version
         self.selfID = selfID
         self.platform = platform
+        files = OneBotFileService(resolver: assetResolver)
         context = OneBotContext(store: platform.store)
-        let coder = OneBotSegmentCoder(version: version, assetResolver: assetResolver)
+        let coder = OneBotSegmentCoder(
+            version: version, assetResolver: assetResolver, store: platform.store, selfID: selfID)
         segmentCoder = coder
         eventEncoder = OneBotEventEncoder(
             version: version,
@@ -87,12 +90,20 @@ public final class OneBotProtocolImplementation: ProtocolImplementation, @unchec
             : call.name
 
         do {
-            guard let handler = Self.actions[name] else {
+            guard let handler = actions[name] else {
                 return unsupportedAction(name)
             }
             return try await handler(self, call)
+        } catch let error as OneBotMessageError {
+            return ProtocolReply(retcode: error.retcode, message: error.localizedDescription)
+        } catch let error as OneBotFileError {
+            return ProtocolReply(retcode: version == .v11 ? 1400 : error.retcode, message: error.localizedDescription)
         } catch let error as PlatformError {
             return failure(error)
+        } catch let error as URLError {
+            return ProtocolReply(retcode: version == .v11 ? 1000 : 33000, message: error.localizedDescription)
+        } catch let error as CocoaError {
+            return ProtocolReply(retcode: version == .v11 ? 1000 : 32000, message: error.localizedDescription)
         } catch {
             return ProtocolReply(
                 retcode: version == .v11 ? 1000 : 20002,
@@ -101,60 +112,73 @@ public final class OneBotProtocolImplementation: ProtocolImplementation, @unchec
         }
     }
 
-    /// The action table.
-    ///
-    /// Static so `get_supported_actions` can report exactly what is dispatchable —
-    /// the table is its own manifest and cannot drift from what is implemented.
-    static let actions: [String: @Sendable (OneBotProtocolImplementation, ProtocolCall) async throws -> ProtocolReply] =
-        [
-            // Sending
-            "send_msg": { try await $0.sendMessage($1) },
-            "send_private_msg": { try await $0.sendMessage($1, forcedScene: .friend) },
-            "send_group_msg": { try await $0.sendMessage($1, forcedScene: .group) },
-            "send_message": { try await $0.sendMessage($1) },
+    typealias ActionHandler = @Sendable (OneBotProtocolImplementation, ProtocolCall) async throws -> ProtocolReply
 
-            // Recalling
-            "delete_msg": { try await $0.deleteMessage($1) },
-            "delete_message": { try await $0.deleteMessage($1) },
-            "get_msg": { try await $0.getMessage($1) },
-            "get_message": { try await $0.getMessage($1) },
+    /// Each version advertises precisely the standard actions it dispatches.
+    /// Protocol-specific names never leak into the other version's manifest.
+    var actions: [String: ActionHandler] {
+        Self.commonActions.merging(version == .v11 ? Self.v11Actions : Self.v12Actions) { _, versioned in versioned }
+    }
 
-            // Identity
-            "get_login_info": { implementation, _ in await implementation.loginInfo() },
-            "get_self_info": { implementation, _ in await implementation.loginInfo() },
-            "get_stranger_info": { try await $0.userInfo($1) },
-            "get_user_info": { try await $0.userInfo($1) },
-            "get_friend_list": { implementation, _ in await implementation.friendList() },
+    private static let commonActions: [String: ActionHandler] = [
+        "get_friend_list": { implementation, _ in await implementation.friendList() },
+        "get_group_info": { try await $0.groupInfo($1) },
+        "get_group_list": { implementation, _ in await implementation.groupList() },
+        "get_group_member_info": { try await $0.memberInfo($1) },
+        "get_group_member_list": { try await $0.memberList($1) },
+        "set_group_name": { try await $0.setGroupName($1) },
+        "get_status": { implementation, _ in implementation.status() },
+    ]
 
-            // Groups
-            "get_group_info": { try await $0.groupInfo($1) },
-            "get_group_list": { implementation, _ in await implementation.groupList() },
-            "get_group_member_info": { try await $0.memberInfo($1) },
-            "get_group_member_list": { try await $0.memberList($1) },
-            "set_group_name": { try await $0.setGroupName($1) },
-            "set_group_card": { try await $0.setGroupCard($1) },
-            "set_group_special_title": { try await $0.setGroupTitle($1) },
-            "set_group_admin": { try await $0.setGroupAdmin($1) },
-            "set_group_ban": { try await $0.setGroupBan($1) },
-            "set_group_whole_ban": { try await $0.setGroupWholeBan($1) },
-            "set_group_kick": { try await $0.kickMember($1) },
-            "set_group_leave": { try await $0.leaveGroup($1) },
-            "leave_group": { try await $0.leaveGroup($1) },
+    private static let v11Actions: [String: ActionHandler] = [
+        "send_msg": { try await $0.sendMessage($1) },
+        "send_private_msg": { try await $0.sendMessage($1, forcedScene: .friend) },
+        "send_group_msg": { try await $0.sendMessage($1, forcedScene: .group) },
+        "delete_msg": { try await $0.deleteMessage($1) },
+        "get_msg": { try await $0.getMessage($1) },
+        "get_forward_msg": { try await $0.getForward($1) },
+        "get_image": { try await $0.getMedia($1, kind: .image) },
+        "get_record": { try await $0.getMedia($1, kind: .record) },
+        "send_like": { try await $0.sendLike($1) },
+        "get_login_info": { implementation, _ in await implementation.loginInfo() },
+        "get_stranger_info": { try await $0.userInfo($1) },
+        "set_group_card": { try await $0.setGroupCard($1) },
+        "set_group_special_title": { try await $0.setGroupTitle($1) },
+        "set_group_admin": { try await $0.setGroupAdmin($1) },
+        "set_group_ban": { try await $0.setGroupBan($1) },
+        "set_group_whole_ban": { try await $0.setGroupWholeBan($1) },
+        "set_group_kick": { try await $0.kickMember($1) },
+        "set_group_leave": { try await $0.leaveGroup($1) },
+        "set_friend_add_request": { try await $0.resolveRequest($1) },
+        "set_group_add_request": { try await $0.resolveRequest($1) },
+        "get_version_info": { implementation, _ in implementation.versionInfo() },
+        "can_send_image": { _, _ in .success(["yes": true]) },
+        "can_send_record": { _, _ in .success(["yes": true]) },
+    ]
 
-            // Requests
-            "set_friend_add_request": { try await $0.resolveRequest($1) },
-            "set_group_add_request": { try await $0.resolveRequest($1) },
-
-            // Capability and status
-            "get_status": { implementation, _ in implementation.status() },
-            "get_version_info": { implementation, _ in implementation.versionInfo() },
-            "get_version": { implementation, _ in implementation.versionInfo() },
-            "get_supported_actions": { implementation, _ in implementation.supportedActions() },
-            "can_send_image": { _, _ in .success(["yes": true]) },
-            "can_send_record": { _, _ in .success(["yes": true]) },
-        ]
+    private static let v12Actions: [String: ActionHandler] = [
+        "send_message": { try await $0.sendMessage($1) },
+        "delete_message": { try await $0.deleteMessage($1) },
+        "get_self_info": { implementation, _ in await implementation.loginInfo() },
+        "get_user_info": { try await $0.userInfo($1) },
+        "leave_group": { try await $0.leaveGroup($1) },
+        "get_version": { implementation, _ in implementation.versionInfo() },
+        "get_supported_actions": { implementation, _ in implementation.supportedActions() },
+        "upload_file": { try await $0.files.upload($1) },
+        "upload_file_fragmented": { try await $0.files.uploadFragmented($1) },
+        "get_file": { try await $0.files.get($1) },
+        "get_file_fragmented": { try await $0.files.getFragmented($1) },
+    ]
 
     // MARK: - Outbound events
+
+    public func configureResourceEndpoint(host: String, port: UInt16) async {
+        await segmentCoder.assetResolver.configureResourceEndpoint(host: host, port: port)
+    }
+
+    public func resource(id: String, token: String?) async -> ProtocolResource? {
+        await segmentCoder.assetResolver.resource(id: id, token: token)
+    }
 
     public func encode(event: DomainEvent) async -> [OutboundFrame] {
         // Only forward what is addressed to the persona this implementation represents.

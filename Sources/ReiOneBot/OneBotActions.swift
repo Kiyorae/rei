@@ -45,6 +45,9 @@ extension OneBotProtocolImplementation {
         guard let messageID = call.id("message_id") else {
             return invalidParameter("Missing message_id")
         }
+        guard let message = try await platform.store.message(id: messageID), message.selfID == selfID else {
+            throw PlatformError.messageNotFound(messageID)
+        }
         try await platform.recallMessage(id: messageID, operatorID: selfID)
         return .success()
     }
@@ -53,7 +56,7 @@ extension OneBotProtocolImplementation {
         guard let messageID = call.id("message_id") else {
             return invalidParameter("Missing message_id")
         }
-        guard let message = try await platform.store.message(id: messageID) else {
+        guard let message = try await platform.store.message(id: messageID), message.selfID == selfID else {
             throw PlatformError.messageNotFound(messageID)
         }
 
@@ -89,7 +92,55 @@ extension OneBotProtocolImplementation {
         }
     }
 
+    func getForward(_ call: ProtocolCall) async throws -> ProtocolReply {
+        guard let id = call.string("id") else { return invalidParameter("Missing id") }
+        guard let nodes = try await platform.store.forwardNodes(id: id, selfID: selfID) else {
+            throw PlatformError.messageNotFound(id)
+        }
+        var message: [JSONValue] = []
+        for node in nodes {
+            message.append([
+                "type": "node",
+                "data": [
+                    "user_id": .string(node.senderID), "nickname": .string(node.senderName),
+                    "content": .array(await segmentCoder.encode(node.content)),
+                ],
+            ])
+        }
+        return .success(["message": .array(message)])
+    }
+
+    func getMedia(_ call: ProtocolCall, kind: AssetKind) async throws -> ProtocolReply {
+        guard let reference = call.string("file") else { return invalidParameter("Missing file") }
+        let known = await segmentCoder.assetResolver.asset(forIdentifier: reference, kind: kind)
+        let asset: Asset
+        if let known {
+            asset = known
+        } else if let imported = await segmentCoder.assetResolver.asset(forReference: reference, url: nil, kind: kind) {
+            asset = imported
+        } else {
+            throw OneBotFileError.unavailable("Media file is unavailable")
+        }
+        let output: Asset
+        if kind == .record {
+            guard let format = call.string("out_format") else { return invalidParameter("Missing out_format") }
+            output = try await segmentCoder.assetResolver.convertAudio(asset, to: format)
+        } else {
+            output = asset
+        }
+        let resolved = await segmentCoder.assetResolver.reference(for: output, version: .v11)
+        return .success(["file": .string(resolved.identifier)])
+    }
+
     // MARK: - Identity
+
+    func sendLike(_ call: ProtocolCall) async throws -> ProtocolReply {
+        guard let userID = call.id("user_id") else { return invalidParameter("Missing user_id") }
+        let times = call.int("times") ?? 1
+        guard (1...10).contains(times) else { return invalidParameter("times must be between 1 and 10") }
+        try await platform.likeProfile(userID: userID, operatorID: selfID, count: times, dailyLimit: 10)
+        return .success()
+    }
 
     func loginInfo() async -> ProtocolReply {
         let user = try? await platform.store.user(id: selfID)
@@ -110,7 +161,7 @@ extension OneBotProtocolImplementation {
         guard let userID = call.id("user_id") else {
             return invalidParameter("Missing user_id")
         }
-        guard var info = await context.userInfo(userID: userID) else {
+        guard var info = await context.userInfo(userID: userID, version: version, selfID: selfID) else {
             throw PlatformError.userNotFound(userID)
         }
         if version == .v11 {
@@ -157,7 +208,7 @@ extension OneBotProtocolImplementation {
     }
 
     func groupList() async -> ProtocolReply {
-        let groups = (try? await platform.store.allGroups()) ?? []
+        let groups = (try? await platform.store.groups(containing: selfID)) ?? []
         var payload: [JSONValue] = []
         for group in groups {
             guard var info = await context.groupInfo(groupID: group.id) else { continue }
@@ -173,7 +224,7 @@ extension OneBotProtocolImplementation {
         guard let groupID = call.id("group_id"), let userID = call.id("user_id") else {
             return invalidParameter("Missing group_id or user_id")
         }
-        guard var info = await context.memberInfo(groupID: groupID, userID: userID) else {
+        guard var info = await context.memberInfo(groupID: groupID, userID: userID, version: version) else {
             throw PlatformError.notAMember(groupID: groupID, userID: userID)
         }
         if version == .v11 {
@@ -192,7 +243,9 @@ extension OneBotProtocolImplementation {
         let members = try await platform.store.members(groupID: groupID)
         var payload: [JSONValue] = []
         for member in members {
-            guard var info = await context.memberInfo(groupID: groupID, userID: member.userID) else { continue }
+            guard var info = await context.memberInfo(groupID: groupID, userID: member.userID, version: version) else {
+                continue
+            }
             if version == .v11 {
                 info = info.merging(["group_id": numeric(groupID), "user_id": numeric(member.userID)])
             }
@@ -351,7 +404,7 @@ extension OneBotProtocolImplementation {
     }
 
     func supportedActions() -> ProtocolReply {
-        .success(.array(Self.actions.keys.sorted().map { .string($0) }))
+        .success(.array(actions.keys.sorted().map { .string($0) }))
     }
 
     // MARK: - Shared helpers
@@ -365,8 +418,10 @@ extension OneBotProtocolImplementation {
         switch declared {
         case "group": return .group
         case "private": return .friend
-        default:
+        case nil where version == .v11:
             return call.id("group_id") != nil ? .group : .friend
+        default:
+            throw PlatformError.invalidParameter("Unsupported message destination")
         }
     }
 
@@ -381,12 +436,11 @@ extension OneBotProtocolImplementation {
             throw PlatformError.invalidParameter("Missing message")
         }
         if let segments = raw.arrayValue {
-            return await segmentCoder.decode(segments)
+            return try await segmentCoder.decodeMessage(segments)
         }
-        if let text = raw.stringValue {
-            // A bare string is a v11 convenience; CQ-code parsing is deliberately not
-            // implemented, so it is taken as literal text.
-            return [.text(text)]
+        if version == .v11, case .string(let text) = raw {
+            if call.bool("auto_escape") == true { return [.text(text)] }
+            return await segmentCoder.decode(OneBotCQCode.decode(text))
         }
         throw PlatformError.invalidParameter("message must be an array or string")
     }
@@ -412,7 +466,7 @@ extension OneBotProtocolImplementation {
         let retcode: Int
         switch error {
         case .userNotFound, .groupNotFound, .messageNotFound, .requestNotFound, .notAMember:
-            retcode = version == .v11 ? 1404 : 1404
+            retcode = version == .v11 ? 1404 : 35000
         case .invalidParameter:
             retcode = version == .v11 ? 1400 : 10003
         case .notPermitted, .muted, .wholeGroupMuted:

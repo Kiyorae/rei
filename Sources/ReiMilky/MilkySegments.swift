@@ -139,17 +139,17 @@ struct MilkySegmentCoder: Sendable {
 
     // MARK: - Inbound: OutgoingSegment -> domain
 
-    func decodeOutgoing(_ segments: [JSONValue]) async -> [MessageSegment] {
+    func decodeOutgoing(_ segments: [JSONValue], in chat: Chat) async throws -> [MessageSegment] {
         var result: [MessageSegment] = []
         for raw in segments {
-            if let decoded = await decodeOutgoing(raw) {
+            if let decoded = try await decodeOutgoing(raw, in: chat) {
                 result.append(decoded)
             }
         }
         return result
     }
 
-    private func decodeOutgoing(_ raw: JSONValue) async -> MessageSegment? {
+    private func decodeOutgoing(_ raw: JSONValue, in chat: Chat) async throws -> MessageSegment? {
         guard let type = raw["type"]?.stringValue else { return nil }
         let data = raw["data"] ?? .object([:])
 
@@ -181,12 +181,16 @@ struct MilkySegmentCoder: Sendable {
 
         case "reply":
             // The framework quotes a sequence number; resolve it to a message ID.
-            guard let seq = data["message_seq"]?.int64Value else { return nil }
-            guard let messageID = await assetResolver.messageID(forSeq: seq) else { return nil }
+            guard let seq = data["message_seq"]?.int64Value else {
+                throw PlatformError.invalidParameter("A reply requires message_seq")
+            }
+            guard let messageID = await assetResolver.messageID(forSeq: seq, in: chat) else {
+                throw PlatformError.messageNotFound("Reply target in \(chat.id):\(seq)")
+            }
             return .reply(messageID: messageID)
 
         case "forward":
-            return await decodeForward(data)
+            return try await decodeForward(data, in: chat)
 
         case "light_app":
             return .unsupported(type: "light_app", payload: data)
@@ -198,7 +202,7 @@ struct MilkySegmentCoder: Sendable {
 
     /// Outgoing forwards arrive inline, so the nodes are built directly rather than
     /// stored behind an ID.
-    private func decodeForward(_ data: JSONValue) async -> MessageSegment? {
+    private func decodeForward(_ data: JSONValue, in chat: Chat) async throws -> MessageSegment? {
         guard let messages = data["messages"]?.arrayValue else { return nil }
         var nodes: [MessageSegment.ForwardNode] = []
         for entry in messages {
@@ -209,7 +213,7 @@ struct MilkySegmentCoder: Sendable {
                     senderID: senderID,
                     senderName: entry["sender_name"]?.stringValue ?? senderID,
                     time: time.map { Date(timeIntervalSince1970: $0) } ?? .now,
-                    content: await decodeOutgoing(entry["segments"]?.arrayValue ?? [])
+                    content: try await decodeOutgoing(entry["segments"]?.arrayValue ?? [], in: chat)
                 )
             )
         }
@@ -255,7 +259,18 @@ public protocol MilkyAssetResolver: Sendable {
     func replyReference(messageID: String) async -> MilkyReplyReference?
 
     /// Maps a sequence number back to a message ID.
-    func messageID(forSeq seq: Int64) async -> String?
+    func messageID(forSeq seq: Int64, in chat: Chat) async -> String?
+    func configureResourceEndpoint(host: String, port: UInt16) async
+    func resource(id: String, token: String?) async -> ProtocolResource?
+    func fileHash(for asset: Asset) async throws -> String
+}
+
+extension MilkyAssetResolver {
+    public func configureResourceEndpoint(host: String, port: UInt16) async {}
+    public func resource(id: String, token: String?) async -> ProtocolResource? { nil }
+    public func fileHash(for asset: Asset) async throws -> String {
+        throw PlatformError.notPermitted("This resolver cannot read file content")
+    }
 }
 
 /// An asset as Milky's incoming segments describe it.

@@ -74,6 +74,12 @@ public protocol ProtocolImplementation: AnyObject, Sendable {
     /// Periodic frames, if the protocol defines a heartbeat. `nil` disables the timer.
     var heartbeatInterval: TimeInterval? { get }
     func heartbeatFrame() async -> OutboundFrame?
+
+    /// Publishes the actual HTTP endpoint selected by the session for resources.
+    func configureResourceEndpoint(host: String, port: UInt16) async
+
+    /// Resolves a signed resource grant, without accepting filesystem paths.
+    func resource(id: String, token: String?) async -> ProtocolResource?
 }
 
 extension ProtocolImplementation {
@@ -86,6 +92,20 @@ extension ProtocolImplementation {
     public func handshakeFrames() async -> [OutboundFrame] { [] }
     public var heartbeatInterval: TimeInterval? { nil }
     public func heartbeatFrame() async -> OutboundFrame? { nil }
+    public func configureResourceEndpoint(host: String, port: UInt16) async {}
+    public func resource(id: String, token: String?) async -> ProtocolResource? { nil }
+}
+
+public struct ProtocolResource: Sendable {
+    public var data: Data
+    public var mimeType: String?
+    public var filename: String
+
+    public init(data: Data, mimeType: String?, filename: String) {
+        self.data = data
+        self.mimeType = mimeType
+        self.filename = filename
+    }
 }
 
 /// Compatibility alias for the earlier, consumer-side terminology.

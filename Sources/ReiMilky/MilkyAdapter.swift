@@ -25,6 +25,7 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
     public static let milkyVersion = "1.3"
 
     public let selfID: String
+    let assetResolver: any MilkyAssetResolver
 
     let platform: PlatformService
     let entityEncoder: MilkyEntityEncoder
@@ -33,6 +34,7 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
 
     public init(selfID: String, platform: PlatformService, assetResolver: any MilkyAssetResolving) {
         self.selfID = selfID
+        self.assetResolver = assetResolver
         self.platform = platform
         let entities = MilkyEntityEncoder(store: platform.store)
         entityEncoder = entities
@@ -46,6 +48,14 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
     }
 
     // MARK: - Inbound
+
+    public func configureResourceEndpoint(host: String, port: UInt16) async {
+        await assetResolver.configureResourceEndpoint(host: host, port: port)
+    }
+
+    public func resource(id: String, token: String?) async -> ProtocolResource? {
+        await assetResolver.resource(id: id, token: token)
+    }
 
     public func handle(call: ProtocolCall) async -> ProtocolReply {
         do {
@@ -77,6 +87,8 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
         "get_group_info": { try await $0.getGroupInfo($1) },
         "get_group_member_list": { try await $0.getGroupMemberList($1) },
         "get_group_member_info": { try await $0.getGroupMemberInfo($1) },
+        "get_peer_pins": { try await $0.getPeerPins($1) },
+        "set_peer_pin": { try await $0.setPeerPin($1) },
         "get_cookies": { _, _ in .success(["cookies": .string("")]) },
         "get_csrf_token": { _, _ in .success(["csrf_token": .string("")]) },
 
@@ -89,11 +101,11 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
         "get_history_messages": { try await $0.getHistoryMessages($1) },
         "get_resource_temp_url": { try await $0.getResourceTempURL($1) },
         "get_forwarded_messages": { try await $0.getForwardedMessages($1) },
-        "mark_message_as_read": { _, _ in .success() },
+        "mark_message_as_read": { try await $0.markMessageAsRead($1) },
 
         // Friends
         "send_friend_nudge": { try await $0.sendFriendNudge($1) },
-        "send_profile_like": { _, _ in .success() },
+        "send_profile_like": { try await $0.sendProfileLike($1) },
         "delete_friend": { try await $0.deleteFriend($1) },
         "get_friend_requests": { try await $0.getFriendRequests($1) },
         "accept_friend_request": { try await $0.resolveFriendRequest($1, approve: true) },
@@ -107,6 +119,11 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
         "set_group_member_mute": { try await $0.setGroupMemberMute($1) },
         "set_group_whole_mute": { try await $0.setGroupWholeMute($1) },
         "kick_group_member": { try await $0.kickGroupMember($1) },
+        "get_group_announcements": { try await $0.getGroupAnnouncements($1) },
+        "send_group_announcement": { try await $0.sendGroupAnnouncement($1) },
+        "delete_group_announcement": { try await $0.deleteGroupAnnouncement($1) },
+        "get_group_essence_messages": { try await $0.getGroupEssenceMessages($1) },
+        "set_group_essence_message": { try await $0.setGroupEssenceMessage($1) },
         "quit_group": { try await $0.quitGroup($1) },
         "send_group_nudge": { try await $0.sendGroupNudge($1) },
         "send_group_message_reaction": { try await $0.sendGroupMessageReaction($1) },
@@ -115,6 +132,20 @@ public final class MilkyProtocolImplementation: ProtocolImplementation, @uncheck
         "reject_group_request": { try await $0.resolveGroupRequest($1, approve: false) },
         "accept_group_invitation": { try await $0.resolveGroupInvitation($1, approve: true) },
         "reject_group_invitation": { try await $0.resolveGroupInvitation($1, approve: false) },
+
+        // Files
+        "upload_private_file": { try await $0.uploadPrivateFile($1) },
+        "upload_group_file": { try await $0.uploadGroupFile($1) },
+        "get_private_file_download_url": { try await $0.getPrivateFileDownloadURL($1) },
+        "get_group_file_download_url": { try await $0.getGroupFileDownloadURL($1) },
+        "get_group_files": { try await $0.getGroupFiles($1) },
+        "move_group_file": { try await $0.moveGroupFile($1) },
+        "rename_group_file": { try await $0.renameGroupFile($1) },
+        "delete_group_file": { try await $0.deleteGroupFile($1) },
+        "persist_group_file": { try await $0.persistGroupFile($1) },
+        "create_group_folder": { try await $0.createGroupFolder($1) },
+        "rename_group_folder": { try await $0.renameGroupFolder($1) },
+        "delete_group_folder": { try await $0.deleteGroupFolder($1) },
     ]
 
     // MARK: - Outbound

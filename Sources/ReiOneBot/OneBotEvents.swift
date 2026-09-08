@@ -52,10 +52,9 @@ struct OneBotEventEncoder: Sendable {
             return []
 
         case .friendAdded(let userID):
-            guard version == .v12 else { return [] }
             return [
-                base(time: time, type: "notice", detailType: "friend_increase")
-                    .merging(["user_id": .string(userID)])
+                base(time: time, type: "notice", detailType: version == .v11 ? "friend_add" : "friend_increase")
+                    .merging(["user_id": id(userID)])
             ]
 
         case .friendRemoved(let userID):
@@ -75,6 +74,9 @@ struct OneBotEventEncoder: Sendable {
 
         case .messageReaction:
             // A v11 extension in practice, not in either standard.
+            return []
+
+        case .peerPinChanged, .messageEssenceChanged, .privateFileUploaded:
             return []
 
         case .groupFileUploaded(let upload):
@@ -118,7 +120,7 @@ struct OneBotEventEncoder: Sendable {
                 "message_id": id(message.id),
                 "user_id": id(message.senderID),
                 "message": .array(segments),
-                "raw_message": .string(plainText),
+                "raw_message": .string(OneBotCQCode.encode(segments)),
                 "font": 0,
             ]
 

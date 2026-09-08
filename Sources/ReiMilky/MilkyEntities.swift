@@ -30,6 +30,7 @@ struct MilkyEntityEncoder: Sendable {
     /// `GroupEntity`.
     func group(_ group: Group) async -> JSONValue {
         let memberCount = (try? await store.memberCount(groupID: group.id)) ?? 0
+        let announcement = (try? await store.announcements(groupID: group.id))?.first?.content ?? ""
         return [
             "group_id": Self.uin(group.id),
             "group_name": .string(group.name),
@@ -39,7 +40,29 @@ struct MilkyEntityEncoder: Sendable {
             "created_time": Self.timestamp(group.createdAt),
             "description": .string(group.intro),
             "question": .string(""),
-            "announcement": .string(""),
+            "announcement": .string(announcement),
+        ]
+    }
+
+    func announcement(_ announcement: GroupAnnouncement, imageURL: String?) -> JSONValue {
+        var value: [String: JSONValue] = [
+            "group_id": Self.uin(announcement.groupID), "announcement_id": .string(announcement.id),
+            "user_id": Self.uin(announcement.senderID), "time": Self.timestamp(announcement.time),
+            "content": .string(announcement.content),
+        ]
+        if let imageURL { value["image_url"] = .string(imageURL) }
+        return .object(value)
+    }
+
+    func essence(
+        _ essence: MessageEssence, message: Message, senderName: String, operatorName: String, segments: [JSONValue]
+    ) -> JSONValue {
+        [
+            "group_id": Self.uin(message.peerID), "message_seq": .number(Double(message.seq)),
+            "message_time": Self.timestamp(message.time), "sender_id": Self.uin(message.senderID),
+            "sender_name": .string(senderName), "operator_id": Self.uin(essence.operatorID),
+            "operator_name": .string(operatorName), "operation_time": Self.timestamp(essence.time),
+            "segments": .array(segments),
         ]
     }
 

@@ -127,6 +127,9 @@ public final class HTTPServer: @unchecked Sendable {
 
     public let host: String
     public let port: UInt16
+
+    /// The OS-selected port after start(), including when port zero was requested.
+    public var listeningPort: UInt16? { lock.withLock { listener?.port?.rawValue } }
     private let handler: Handler
     private let webSocketUpgradeHandler: WebSocketUpgradeHandler?
     private var listener: NWListener?

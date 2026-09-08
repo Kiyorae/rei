@@ -255,14 +255,19 @@ enum ReiSchemaV1: VersionedSchema {
 }
 
 enum ReiMigrationPlan: SchemaMigrationPlan {
-    static var schemas: [any VersionedSchema.Type] { [ReiSchemaV1.self] }
-    static var stages: [MigrationStage] { [] }
+    static var schemas: [any VersionedSchema.Type] { [ReiSchemaV1.self, ReiSchemaV2.self, ReiSchemaV3.self] }
+    static var stages: [MigrationStage] {
+        [
+            .lightweight(fromVersion: ReiSchemaV1.self, toVersion: ReiSchemaV2.self),
+            .lightweight(fromVersion: ReiSchemaV2.self, toVersion: ReiSchemaV3.self),
+        ]
+    }
 }
 
 typealias UserRecord = ReiSchemaV1.UserRecord
 typealias GroupRecord = ReiSchemaV1.GroupRecord
 typealias GroupMemberRecord = ReiSchemaV1.GroupMemberRecord
 typealias FriendshipRecord = ReiSchemaV1.FriendshipRecord
-typealias MessageRecord = ReiSchemaV1.MessageRecord
+typealias MessageRecord = ReiSchemaV2.MessageRecord
 typealias PendingRequestRecord = ReiSchemaV1.PendingRequestRecord
 typealias AssetRecord = ReiSchemaV1.AssetRecord

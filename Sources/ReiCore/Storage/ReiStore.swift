@@ -122,7 +122,7 @@ public final class ReiStore: Sendable {
 }
 
 enum ReiContainerFactory {
-    private static var schema: Schema { Schema(versionedSchema: ReiSchemaV1.self) }
+    private static var schema: Schema { Schema(versionedSchema: ReiSchemaV3.self) }
 
     static func persistent(path: String) throws -> ModelContainer {
         let configuration = ModelConfiguration(
@@ -167,8 +167,13 @@ struct StoreChange: OptionSet, Sendable {
     static let conversations = StoreChange(rawValue: 1 << 5)
     static let assets = StoreChange(rawValue: 1 << 6)
     static let friendships = StoreChange(rawValue: 1 << 7)
+    static let chatState = StoreChange(rawValue: 1 << 8)
+    static let groupContent = StoreChange(rawValue: 1 << 9)
+    static let files = StoreChange(rawValue: 1 << 10)
+    static let profileLikes = StoreChange(rawValue: 1 << 11)
     static let all: StoreChange = [
         .users, .groups, .members, .messages, .requests, .conversations, .assets, .friendships,
+        .chatState, .groupContent, .files, .profileLikes,
     ]
 }
 
@@ -264,6 +269,7 @@ actor StoreExecutor {
     func deleteUser(id: String) throws {
         let userID = id
         try modelContext.transaction {
+            try deleteUserFeatures(userID: userID)
             if let record = try userRecord(id: userID) {
                 modelContext.delete(record)
             }
@@ -281,7 +287,7 @@ actor StoreExecutor {
             for friendship in friendships { modelContext.delete(friendship) }
             try modelContext.save()
         }
-        publish([.users, .members, .friendships, .conversations])
+        publish([.users, .members, .friendships, .conversations, .chatState, .groupContent, .files, .profileLikes])
     }
 
     // MARK: Groups
@@ -312,6 +318,7 @@ actor StoreExecutor {
         let groupID = id
         let groupScene = ChatScene.group.rawValue
         try modelContext.transaction {
+            try deleteGroupFeatures(groupID: groupID)
             if let record = try groupRecord(id: groupID) {
                 modelContext.delete(record)
             }
@@ -337,7 +344,7 @@ actor StoreExecutor {
             for request in requests { modelContext.delete(request) }
             try modelContext.save()
         }
-        publish([.groups, .members, .messages, .requests, .conversations])
+        publish([.groups, .members, .messages, .requests, .conversations, .chatState, .groupContent, .files])
     }
 
     // MARK: Members

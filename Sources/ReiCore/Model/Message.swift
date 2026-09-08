@@ -23,6 +23,7 @@ public struct Message: Identifiable, Hashable, Sendable, Codable {
     public var recalledAt: Date?
     /// Who recalled it, when that differs from the sender (an admin, say).
     public var recalledBy: String?
+    public var reactions: [MessageReaction]
 
     public enum Direction: String, Hashable, Sendable, Codable {
         /// Authored in Rei by the operator, pushed to the bot as an event.
@@ -47,7 +48,8 @@ public struct Message: Identifiable, Hashable, Sendable, Codable {
         time: Date = .now,
         direction: Direction,
         recalledAt: Date? = nil,
-        recalledBy: String? = nil
+        recalledBy: String? = nil,
+        reactions: [MessageReaction] = []
     ) {
         self.id = id
         self.seq = seq
@@ -60,6 +62,7 @@ public struct Message: Identifiable, Hashable, Sendable, Codable {
         self.direction = direction
         self.recalledAt = recalledAt
         self.recalledBy = recalledBy
+        self.reactions = reactions
     }
 }
 

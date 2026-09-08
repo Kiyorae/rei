@@ -35,6 +35,9 @@ public struct DomainEvent: Identifiable, Hashable, Sendable {
 
         case message(Message)
         case messageRecalled(MessageRecalled)
+        case peerPinChanged(chat: Chat, isPinned: Bool)
+        case messageEssenceChanged(MessageEssenceChange)
+        case privateFileUploaded(PrivateFileUpload)
 
         // MARK: Group membership
 
@@ -172,7 +175,7 @@ public struct DomainEvent: Identifiable, Hashable, Sendable {
         public var peerID: String
         public var userID: String
         /// Face/emoji identifier.
-        public var reaction: String
+        public var reaction: Reaction
         /// `true` when added, `false` when removed.
         public var added: Bool
 
@@ -181,7 +184,7 @@ public struct DomainEvent: Identifiable, Hashable, Sendable {
             scene: ChatScene,
             peerID: String,
             userID: String,
-            reaction: String,
+            reaction: Reaction,
             added: Bool
         ) {
             self.messageID = messageID
@@ -197,11 +200,29 @@ public struct DomainEvent: Identifiable, Hashable, Sendable {
         public var groupID: String
         public var userID: String
         public var asset: Asset
+        public var fileID: String
 
-        public init(groupID: String, userID: String, asset: Asset) {
+        public init(groupID: String, userID: String, asset: Asset, fileID: String? = nil) {
             self.groupID = groupID
             self.userID = userID
             self.asset = asset
+            self.fileID = fileID ?? asset.id
         }
+    }
+
+    public struct MessageEssenceChange: Hashable, Sendable {
+        public var message: Message
+        public var operatorID: String
+        public var isSet: Bool
+        public init(message: Message, operatorID: String, isSet: Bool) {
+            self.message = message
+            self.operatorID = operatorID
+            self.isSet = isSet
+        }
+    }
+
+    public struct PrivateFileUpload: Hashable, Sendable {
+        public var file: SharedFile
+        public init(file: SharedFile) { self.file = file }
     }
 }

@@ -143,7 +143,7 @@ extension MilkyProtocolImplementation {
         guard let raw = call.array("message") else {
             return invalidParameter("Missing message")
         }
-        let content = await segmentCoder.decodeOutgoing(raw)
+        let content = try await segmentCoder.decodeOutgoing(raw, in: Chat(scene: scene, peerID: peerID, selfID: selfID))
         guard !content.isEmpty else {
             return invalidParameter("Message content is empty")
         }
@@ -208,6 +208,7 @@ extension MilkyProtocolImplementation {
             throw PlatformError.messageNotFound("\(scene.rawValue):\(peerID):\(seq)")
         }
 
+        guard !message.isRecalled else { throw PlatformError.messageNotFound(message.id) }
         let segments = await segmentCoder.encodeIncoming(message.content)
         return .success(["message": await entityEncoder.incomingMessage(message, segments: segments)])
     }
@@ -249,25 +250,15 @@ extension MilkyProtocolImplementation {
     }
 
     func getResourceTempURL(_ call: ProtocolCall) async throws -> ProtocolReply {
-        guard let resourceID = call.id("resource_id") else {
-            return invalidParameter("Missing resource_id")
-        }
+        let resourceID = try MilkyParameters(call).string("resource_id")
+        guard !resourceID.isEmpty else { return invalidParameter("resource_id cannot be empty") }
         guard let asset = try await platform.store.asset(id: resourceID) else {
             // No platform error names a missing asset, and Milky's retcode set is too
             // small to care: this is the catch-all -404 either way.
             throw PlatformError.notPermitted("Resource not found: \(resourceID)")
         }
 
-        // The protocol implementation does not know the host and port the transport bound to, so it
-        // cannot mint an HTTP URL. A reference the asset already carries is the honest
-        // answer; for bytes that only ever existed inline, the `rei-asset://` form
-        // the rest of the app uses for local references is returned instead.
-        let url: String
-        switch asset.source {
-        case .remote(let remote): url = remote
-        case .local(let path): url = URL(fileURLWithPath: path).absoluteString
-        case .inline: url = "rei-asset://\(asset.id)"
-        }
+        let url = await assetResolver.resource(for: asset).tempURL
         return .success(["url": .string(url)])
     }
 
@@ -318,8 +309,7 @@ extension MilkyProtocolImplementation {
         // the bot rather than the friend while the conversation stays the same.
         let isSelf = call.bool("is_self") ?? false
         try await platform.poke(
-            scene: .friend,
-            peerID: userID,
+            in: Chat(scene: .friend, peerID: userID, selfID: selfID),
             senderID: selfID,
             targetID: isSelf ? selfID : userID
         )
@@ -469,19 +459,34 @@ extension MilkyProtocolImplementation {
         guard let groupID = call.id("group_id"), let userID = call.id("user_id") else {
             return invalidParameter("Missing group_id or user_id")
         }
-        try await platform.poke(scene: .group, peerID: groupID, senderID: selfID, targetID: userID)
+        try await platform.poke(
+            in: Chat(scene: .group, peerID: groupID, selfID: selfID), senderID: selfID, targetID: userID)
         return .success()
     }
 
     func sendGroupMessageReaction(_ call: ProtocolCall) async throws -> ProtocolReply {
-        guard let groupID = call.id("group_id") else {
-            return invalidParameter("Missing group_id")
+        guard case .number(let groupNumber) = call.parameters["group_id"],
+            let group = Int64(exactly: groupNumber),
+            case .number(let sequenceNumber) = call.parameters["message_seq"],
+            let seq = Int64(exactly: sequenceNumber),
+            case .string(let reaction) = call.parameters["reaction"]
+        else { return invalidParameter("group_id and message_seq must be integers; reaction must be a string") }
+        let groupID = String(group)
+        let kind: Reaction.Kind
+        if let rawKind = call.parameters["reaction_type"] {
+            guard case .string(let value) = rawKind, let parsed = Reaction.Kind(rawValue: value) else {
+                return invalidParameter("reaction_type must be face or emoji")
+            }
+            kind = parsed
+        } else {
+            kind = .face
         }
-        guard let seq = call.int64("message_seq") else {
-            return invalidParameter("Missing message_seq")
-        }
-        guard let reaction = call.string("reaction") else {
-            return invalidParameter("Missing reaction")
+        let added: Bool
+        if let rawAdded = call.parameters["is_add"] {
+            guard case .bool(let value) = rawAdded else { return invalidParameter("is_add must be a boolean") }
+            added = value
+        } else {
+            added = true
         }
         guard
             let message = try await platform.store.message(
@@ -494,14 +499,11 @@ extension MilkyProtocolImplementation {
             throw PlatformError.messageNotFound("group:\(groupID):\(seq)")
         }
 
-        // `reaction_type` splits QQ faces from emoji, a distinction the domain model
-        // does not draw: a reaction is just its identifier here.
-        _ = call.string("reaction_type")
         try await platform.react(
             messageID: message.id,
             userID: selfID,
-            reaction: reaction,
-            added: call.bool("is_add") ?? true
+            reaction: Reaction(kind: kind, value: reaction),
+            added: added
         )
         return .success()
     }

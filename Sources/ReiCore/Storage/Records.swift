@@ -214,7 +214,8 @@ extension MessageRecord {
             time: message.time,
             direction: message.direction.rawValue,
             recalledAt: message.recalledAt,
-            recalledBy: message.recalledBy
+            recalledBy: message.recalledBy,
+            reactions: PersistenceCodec.encode(message.reactions)
         )
     }
 
@@ -229,6 +230,7 @@ extension MessageRecord {
         direction = message.direction.rawValue
         recalledAt = message.recalledAt
         recalledBy = message.recalledBy
+        reactions = try PersistenceCodec.encode(message.reactions)
     }
 
     func domainValue() throws -> Message {
@@ -249,7 +251,8 @@ extension MessageRecord {
             time: time,
             direction: direction,
             recalledAt: recalledAt,
-            recalledBy: recalledBy
+            recalledBy: recalledBy,
+            reactions: reactions.map { try PersistenceCodec.decode([MessageReaction].self, from: $0) } ?? []
         )
     }
 }

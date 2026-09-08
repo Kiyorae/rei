@@ -33,8 +33,16 @@ public struct OneBotContext: Sendable {
     }
 
     /// A user as `get_stranger_info` and friends report them.
-    func userInfo(userID: String) async -> JSONValue? {
+    func userInfo(userID: String, version: OneBotVersion, selfID: String) async -> JSONValue? {
         guard let user = try? await store.user(id: userID) else { return nil }
+        if version == .v12 {
+            let friendship = try? await store.friendship(userID: selfID, friendID: userID)
+            return [
+                "user_id": .string(userID), "user_name": .string(user.displayName),
+                "user_displayname": .string(user.nickname),
+                "user_remark": .string(friendship?.remark ?? ""),
+            ]
+        }
         return [
             "user_id": .string(user.id),
             "nickname": .string(user.displayName),
@@ -56,9 +64,15 @@ public struct OneBotContext: Sendable {
     }
 
     /// A member as `get_group_member_info` reports it.
-    func memberInfo(groupID: String, userID: String) async -> JSONValue? {
+    func memberInfo(groupID: String, userID: String, version: OneBotVersion) async -> JSONValue? {
         guard let member = try? await store.member(groupID: groupID, userID: userID) else { return nil }
         let user = try? await store.user(id: userID)
+        if version == .v12 {
+            return [
+                "user_id": .string(userID), "user_name": .string(user?.displayName ?? userID),
+                "user_displayname": .string(member.card.isEmpty ? (user?.nickname ?? "") : member.card),
+            ]
+        }
         return [
             "group_id": .string(groupID),
             "user_id": .string(userID),
@@ -70,6 +84,8 @@ public struct OneBotContext: Sendable {
             "last_sent_time": .number(member.lastSentAt?.timeIntervalSince1970 ?? 0),
             "role": .string(member.role.rawValue),
             "title": .string(member.title),
+            "area": "", "level": "", "unfriendly": false,
+            "title_expire_time": -1, "card_changeable": true,
             "shut_up_timestamp": .number(member.mutedUntil?.timeIntervalSince1970 ?? 0),
         ]
     }

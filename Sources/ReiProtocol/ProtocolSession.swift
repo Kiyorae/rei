@@ -156,6 +156,7 @@ public actor ProtocolSession {
     private var webSocketServer: WebSocketServer?
     private var webSocketClient: WebSocketClient?
     private var milkyServer: HTTPServer?
+    private var resourceServer: HTTPServer?
     private var webhookClients: [HTTPWebhookClient] = []
 
     /// Sockets that have completed the WebSocket upgrade but not the protocol-level
@@ -302,8 +303,10 @@ public actor ProtocolSession {
         do {
             switch settings.transport {
             case .webSocketServer:
+                try await startResourceServer(generation: generation)
                 try await startWebSocketServer(generation: generation)
             case .webSocketClient:
+                try await startResourceServer(generation: generation)
                 try startWebSocketClient(generation: generation)
             case .milkyService:
                 try await startMilkyServer(generation: generation)
@@ -368,12 +371,52 @@ public actor ProtocolSession {
         webSocketClient = nil
         milkyServer?.stop()
         milkyServer = nil
+        resourceServer?.stop()
+        resourceServer = nil
         webhookClients.removeAll()
         for connection in eventConnections.values { connection.close() }
         eventConnections.removeAll()
     }
 
     // MARK: - WebSocket server mode
+
+    private func startResourceServer(generation: UInt64) async throws {
+        let server = HTTPServer(host: settings.resourceHost, port: 0) { [weak self] request in
+            guard let self else { return .empty(status: 503) }
+            return await handleResource(request)
+        }
+        resourceServer = server
+        try await server.start()
+        guard generation == transportGeneration, resourceServer === server, let port = server.listeningPort else {
+            server.stop()
+            throw TransportError.cancelled
+        }
+        await implementation.configureResourceEndpoint(host: settings.resourceHost, port: port)
+        guard generation == transportGeneration else { throw TransportError.cancelled }
+    }
+
+    private func handleResource(_ request: HTTPRequest) async -> HTTPResponse {
+        guard request.method == "GET", request.path.hasPrefix("/assets/") else { return .empty(status: 404) }
+        let id = String(request.path.dropFirst("/assets/".count))
+        guard let resource = await implementation.resource(id: id, token: request.query["token"]) else {
+            return .empty(status: 404)
+        }
+        let filenameCharacters = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._")
+        let filename =
+            resource.filename.addingPercentEncoding(withAllowedCharacters: filenameCharacters) ?? "attachment"
+        let mimeType =
+            resource.mimeType.flatMap { value in
+                value.contains("\r") || value.contains("\n") ? nil : value
+            } ?? "application/octet-stream"
+        return HTTPResponse(
+            headers: [
+                ("Content-Type", mimeType),
+                ("Content-Disposition", "inline; filename*=UTF-8''\(filename)"),
+                ("X-Content-Type-Options", "nosniff"),
+                ("Cache-Control", "private, no-store"),
+            ], body: resource.data)
+    }
 
     /// Listens for a framework to dial in. OneBot calls this a forward connection.
     private func startWebSocketServer(generation: UInt64) async throws {
@@ -548,6 +591,8 @@ public actor ProtocolSession {
             api.stop()
             throw TransportError.cancelled
         }
+        await implementation.configureResourceEndpoint(host: settings.host, port: api.listeningPort ?? settings.port)
+        guard generation == transportGeneration else { throw TransportError.cancelled }
         webhookClients = webhooks
         setState(.ready(port: settings.port))
         // The event socket is push-only; its ping does not describe API request
@@ -586,6 +631,7 @@ public actor ProtocolSession {
 
     /// Routes one HTTP request.
     private func handle(request: HTTPRequest) async -> HTTPResponse {
+        if request.path.hasPrefix("/assets/") { return await handleResource(request) }
         guard isAuthorized(request) else {
             return .json(Self.errorBody(retcode: -403, message: "Access Token validation failed"), status: 401)
         }

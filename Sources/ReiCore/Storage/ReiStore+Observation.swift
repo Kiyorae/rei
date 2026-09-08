@@ -5,6 +5,34 @@ import Foundation
 public typealias StoreObservation<Value: Sendable> = AsyncThrowingStream<Value, any Error>
 
 extension ReiStore {
+    public func observeConversationState(in chat: Chat) -> StoreObservation<ConversationState> {
+        observation(for: .chatState) { [self] in try await conversationState(in: chat) }
+    }
+
+    public func observeConversationStates(selfID: String) -> StoreObservation<[ConversationState]> {
+        observation(for: .chatState) { [self] in try await conversationStates(selfID: selfID) }
+    }
+
+    public func observeAnnouncements(groupID: String) -> StoreObservation<[GroupAnnouncement]> {
+        observation(for: .groupContent) { [self] in try await announcements(groupID: groupID) }
+    }
+
+    public func observeEssences(in chat: Chat) -> StoreObservation<[MessageEssence]> {
+        observation(for: [.groupContent, .messages]) { [self] in try await essences(in: chat) }
+    }
+
+    public func observeSharedFiles(in chat: Chat, folderID: String? = nil) -> StoreObservation<[SharedFile]> {
+        observation(for: .files) { [self] in try await sharedFiles(in: chat, folderID: folderID) }
+    }
+
+    public func observeFolders(groupID: String) -> StoreObservation<[GroupFolder]> {
+        observation(for: .files) { [self] in try await folders(groupID: groupID) }
+    }
+
+    public func observeProfileLikes(userID: String) -> StoreObservation<[ProfileLike]> {
+        observation(for: .profileLikes) { [self] in try await profileLikes(userID: userID) }
+    }
+
     public func observeUsers() -> StoreObservation<[User]> {
         observation(for: .users) { [self] in try await allUsers() }
     }
@@ -13,8 +41,14 @@ extension ReiStore {
         observation(for: .groups) { [self] in try await allGroups() }
     }
 
-    public func observeMessages(in chat: Chat, limit: Int = 200) -> StoreObservation<[Message]> {
-        observation(for: .messages) { [self] in try await messages(in: chat, limit: limit) }
+    public func observeMessages(in chat: Chat, limit: Int = 200, startingAt sequence: Int64? = nil) -> StoreObservation<
+        [Message]
+    > {
+        observation(for: .messages) { [self] in try await messages(in: chat, limit: limit, startingAt: sequence) }
+    }
+
+    public func observeMessage(id: Message.ID) -> StoreObservation<Message?> {
+        observation(for: .messages) { [self] in try await message(id: id) }
     }
 
     public func observeMembers(groupID: String) -> StoreObservation<[(member: GroupMember, user: User)]> {

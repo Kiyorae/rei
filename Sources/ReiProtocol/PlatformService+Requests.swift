@@ -18,9 +18,13 @@ extension PlatformService {
         guard try await store.user(id: targetID) != nil else {
             throw PlatformError.userNotFound(targetID)
         }
+        guard requesterID != targetID else {
+            throw PlatformError.notPermitted("A user cannot send a friend request to themselves")
+        }
         if try await store.friendship(userID: targetID, friendID: requesterID) != nil {
             throw PlatformError.alreadyExists("The users are already friends")
         }
+        try await requireNewRequest(kind: .friend, requesterID: requesterID, targetID: targetID)
 
         let request = PendingRequest(
             kind: .friend,
@@ -44,9 +48,15 @@ extension PlatformService {
         guard try await store.group(id: groupID) != nil else {
             throw PlatformError.groupNotFound(groupID)
         }
+        for userID in [requesterID, targetBotID] {
+            guard try await store.user(id: userID) != nil else {
+                throw PlatformError.userNotFound(userID)
+            }
+        }
         if try await store.member(groupID: groupID, userID: requesterID) != nil {
             throw PlatformError.alreadyExists("The user is already in the group")
         }
+        try await requireNewRequest(kind: .groupJoin, requesterID: requesterID, targetID: targetBotID, groupID: groupID)
 
         let request = PendingRequest(
             kind: .groupJoin,
@@ -71,6 +81,18 @@ extension PlatformService {
         guard try await store.group(id: groupID) != nil else {
             throw PlatformError.groupNotFound(groupID)
         }
+        for userID in [inviterID, inviteeID] {
+            guard try await store.user(id: userID) != nil else {
+                throw PlatformError.userNotFound(userID)
+            }
+        }
+        guard try await store.member(groupID: groupID, userID: inviterID) != nil else {
+            throw PlatformError.notAMember(groupID: groupID, userID: inviterID)
+        }
+        guard try await store.member(groupID: groupID, userID: inviteeID) == nil else {
+            throw PlatformError.alreadyExists("The invited user is already in the group")
+        }
+        try await requireNewRequest(kind: .groupInvite, requesterID: inviterID, targetID: inviteeID, groupID: groupID)
         let request = PendingRequest(
             kind: .groupInvite,
             requesterID: inviterID,
@@ -81,6 +103,15 @@ extension PlatformService {
         try await store.save(request)
         publish(DomainEvent(selfID: inviteeID, payload: .requestReceived(request)), origin: inviterID)
         return request
+    }
+
+    private func requireNewRequest(
+        kind: PendingRequest.Kind, requesterID: String, targetID: String, groupID: String? = nil
+    ) async throws {
+        let requests = try await store.pendingRequests(selfID: targetID, kind: kind)
+        guard !requests.contains(where: { $0.requesterID == requesterID && $0.groupID == groupID }) else {
+            throw PlatformError.alreadyExists("This request is already awaiting a response")
+        }
     }
 
     /// Resolves a request the way the framework asked.
@@ -169,16 +200,13 @@ extension PlatformService {
         publish(DomainEvent(selfID: friendID, payload: .friendAdded(userID: userID)))
     }
 
-    /// Announces a file upload into a group.
+    /// Uploads through the shared directory, then announces it to group bots.
     public func uploadGroupFile(groupID: String, userID: String, asset: Asset) async throws {
-        guard try await store.member(groupID: groupID, userID: userID) != nil else {
-            throw PlatformError.notAMember(groupID: groupID, userID: userID)
-        }
-        try await store.save(asset)
-        try await publishToGroupBots(
-            groupID: groupID,
-            payload: .groupFileUploaded(.init(groupID: groupID, userID: userID, asset: asset)),
-            origin: userID
+        // Group directories are shared by every account in the group; selfID is
+        // only meaningful for private-file ownership and event routing.
+        try await shareFile(
+            in: Chat(scene: .group, peerID: groupID, selfID: userID),
+            operatorID: userID, asset: asset, name: asset.name
         )
     }
 }

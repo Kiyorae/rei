@@ -169,9 +169,42 @@ struct MilkyEventEncoder: Sendable {
                         "group_id": MilkyEntityEncoder.uin(reaction.peerID),
                         "user_id": MilkyEntityEncoder.uin(reaction.userID),
                         "message_seq": .number(Double(message.seq)),
-                        "face_id": .string(reaction.reaction),
-                        "reaction_type": "face",
+                        "face_id": .string(reaction.reaction.value),
+                        "reaction_type": .string(reaction.reaction.kind.rawValue),
                         "is_add": .bool(reaction.added),
+                    ])
+            ]
+
+        case .peerPinChanged(let chat, let isPinned):
+            return [
+                envelope(
+                    time: time, type: "peer_pin_change",
+                    data: [
+                        "message_scene": .string(chat.scene.rawValue), "peer_id": MilkyEntityEncoder.uin(chat.peerID),
+                        "is_pinned": .bool(isPinned),
+                    ])
+            ]
+
+        case .messageEssenceChanged(let change):
+            return [
+                envelope(
+                    time: time, type: "group_essence_message_change",
+                    data: [
+                        "group_id": MilkyEntityEncoder.uin(change.message.peerID),
+                        "message_seq": .number(Double(change.message.seq)),
+                        "operator_id": MilkyEntityEncoder.uin(change.operatorID), "is_set": .bool(change.isSet),
+                    ])
+            ]
+
+        case .privateFileUploaded(let upload):
+            let file = upload.file
+            return [
+                envelope(
+                    time: time, type: "friend_file_upload",
+                    data: [
+                        "user_id": MilkyEntityEncoder.uin(file.chat.peerID), "file_id": .string(file.id),
+                        "file_name": .string(file.name), "file_size": .number(Double(file.asset.byteCount)),
+                        "file_hash": .string(file.fileHash), "is_self": .bool(file.uploaderID == selfID),
                     ])
             ]
 
@@ -182,7 +215,7 @@ struct MilkyEventEncoder: Sendable {
                     data: [
                         "group_id": MilkyEntityEncoder.uin(upload.groupID),
                         "user_id": MilkyEntityEncoder.uin(upload.userID),
-                        "file_id": .string(upload.asset.id),
+                        "file_id": .string(upload.fileID),
                         "file_name": .string(upload.asset.name),
                         "file_size": .number(Double(upload.asset.byteCount)),
                     ])

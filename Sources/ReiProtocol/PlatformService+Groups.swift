@@ -194,27 +194,51 @@ extension PlatformService {
     }
 
     /// Sends a nudge ("poke").
-    public func poke(scene: ChatScene, peerID: String, senderID: String, targetID: String) async throws {
-        if scene == .group {
-            guard try await store.member(groupID: peerID, userID: targetID) != nil else {
-                throw PlatformError.notAMember(groupID: peerID, userID: targetID)
+    public func poke(in chat: Chat, senderID: String, targetID: String) async throws {
+        if chat.scene == .group {
+            for userID in [senderID, targetID] {
+                guard try await store.member(groupID: chat.peerID, userID: userID) != nil else {
+                    throw PlatformError.notAMember(groupID: chat.peerID, userID: userID)
+                }
             }
+        } else {
+            guard chat.scene == .friend, chat.counterpartID(for: senderID) != nil,
+                chat.counterpartID(for: targetID) != nil,
+                try await store.user(id: chat.peerID) != nil
+            else { throw PlatformError.notPermitted("A nudge must stay within the friend conversation") }
         }
         let payload = DomainEvent.Payload.poke(
-            .init(scene: scene, peerID: peerID, senderID: senderID, targetID: targetID)
+            .init(scene: chat.scene, peerID: chat.peerID, senderID: senderID, targetID: targetID)
         )
-        if scene == .group {
-            try await publishToGroupBots(groupID: peerID, payload: payload, origin: senderID)
+        if chat.scene == .group {
+            try await publishToGroupBots(groupID: chat.peerID, payload: payload, origin: senderID)
         } else {
-            publish(DomainEvent(selfID: targetID, payload: payload), origin: senderID)
+            publish(DomainEvent(selfID: chat.selfID, payload: payload), origin: senderID)
         }
     }
 
     /// Adds or removes a reaction on a message.
-    public func react(messageID: String, userID: String, reaction: String, added: Bool) async throws {
+    public func react(messageID: String, userID: String, reaction: Reaction, added: Bool) async throws {
         guard let message = try await store.message(id: messageID) else {
             throw PlatformError.messageNotFound(messageID)
         }
+        guard message.scene == .group else {
+            throw PlatformError.notPermitted("Reactions are only available in groups")
+        }
+        guard !message.isRecalled else {
+            throw PlatformError.notPermitted("Cannot react to a recalled message")
+        }
+        guard try await store.member(groupID: message.peerID, userID: userID) != nil else {
+            throw PlatformError.notAMember(groupID: message.peerID, userID: userID)
+        }
+        guard !reaction.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PlatformError.invalidParameter("A reaction ID must not be empty")
+        }
+        guard
+            try await store.setReaction(
+                messageID: messageID, userID: userID, reaction: reaction, added: added
+            ) != nil
+        else { return }
         publish(
             DomainEvent(
                 selfID: message.selfID,

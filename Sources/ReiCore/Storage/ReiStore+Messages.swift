@@ -22,8 +22,8 @@ extension ReiStore {
         try await executor.message(scene: scene, peerID: peerID, seq: seq, selfID: selfID)
     }
 
-    public func messages(in chat: Chat, limit: Int = 200) async throws -> [Message] {
-        try await executor.messages(in: chat, limit: limit)
+    public func messages(in chat: Chat, limit: Int = 200, startingAt sequence: Int64? = nil) async throws -> [Message] {
+        try await executor.messages(in: chat, limit: limit, startingAt: sequence)
     }
 
     /// Finds the nodes owned by a persisted merged-forward segment.
@@ -53,6 +53,14 @@ extension ReiStore {
 
     public func recallMessage(id: String, by operatorID: String) async throws -> Message? {
         try await executor.recallMessage(id: id, by: operatorID)
+    }
+
+    /// Returns the changed message, or nil if membership was already in the
+    /// requested state or the target is unavailable. Read/modify/save is atomic.
+    public func setReaction(
+        messageID: String, userID: String, reaction: Reaction, added: Bool
+    ) async throws -> Message? {
+        try await executor.setReaction(messageID: messageID, userID: userID, reaction: reaction, added: added)
     }
 
     public func activeChats(selfID: String) async throws -> [(chat: Chat, lastMessage: Message)] {
@@ -167,18 +175,19 @@ extension StoreExecutor {
         return try modelContext.fetch(descriptor).first?.domainValue()
     }
 
-    func messages(in chat: Chat, limit: Int = 200) throws -> [Message] {
+    func messages(in chat: Chat, limit: Int = 200, startingAt sequence: Int64? = nil) throws -> [Message] {
         guard limit > 0 else { return [] }
         let scene = chat.scene.rawValue
         let peerID = chat.peerID
         let selfID = chat.selfID
+        let lowerBound = sequence ?? Int64.min
         var descriptor = FetchDescriptor<MessageRecord>(
             predicate: #Predicate {
-                $0.scene == scene && $0.peerID == peerID && $0.selfID == selfID
+                $0.scene == scene && $0.peerID == peerID && $0.selfID == selfID && $0.seq >= lowerBound
             },
             sortBy: [SortDescriptor(\MessageRecord.seq, order: .reverse)]
         )
-        descriptor.fetchLimit = limit
+        if sequence == nil { descriptor.fetchLimit = limit }
         let newestFirst = try modelContext.fetch(descriptor).map { try $0.domainValue() }
         return Array(newestFirst.reversed())
     }
@@ -231,6 +240,7 @@ extension StoreExecutor {
                     && $0.peerID == requestedPeerID
                     && $0.selfID == requestedSelfID
                     && $0.seq <= upperBound
+                    && $0.recalledAt == nil
             },
             sortBy: [SortDescriptor(\MessageRecord.seq, order: .reverse)]
         )
@@ -240,11 +250,33 @@ extension StoreExecutor {
     }
 
     func recallMessage(id: String, by operatorID: String) throws -> Message? {
-        guard let record = try messageRecord(id: id) else { return nil }
+        guard let record = try messageRecord(id: id), record.recalledAt == nil else { return nil }
         record.recalledAt = .now
         record.recalledBy = operatorID
+        record.reactions = nil
+        try removeEssence(messageID: id)
         try modelContext.save()
         publish([.messages, .conversations])
+        return try record.domainValue()
+    }
+
+    func setReaction(messageID: String, userID: String, reaction: Reaction, added: Bool) throws -> Message? {
+        guard let record = try messageRecord(id: messageID), record.recalledAt == nil else { return nil }
+        var reactions = try record.domainValue().reactions
+        if let index = reactions.firstIndex(where: { $0.reaction == reaction }) {
+            if added {
+                guard reactions[index].userIDs.insert(userID).inserted else { return nil }
+            } else {
+                guard reactions[index].userIDs.remove(userID) != nil else { return nil }
+                if reactions[index].userIDs.isEmpty { reactions.remove(at: index) }
+            }
+        } else {
+            guard added else { return nil }
+            reactions.append(MessageReaction(reaction: reaction, userIDs: [userID]))
+        }
+        record.reactions = try PersistenceCodec.encode(reactions)
+        try modelContext.save()
+        publish(.messages)
         return try record.domainValue()
     }
 
@@ -286,7 +318,11 @@ extension StoreExecutor {
         )
         let records = try modelContext.fetch(descriptor)
         guard !records.isEmpty else { return }
-        for record in records { modelContext.delete(record) }
+        for record in records {
+            try removeEssence(messageID: record.id)
+            modelContext.delete(record)
+        }
+        try resetReadMarker(in: chat)
         try modelContext.save()
         publish([.messages, .conversations])
     }

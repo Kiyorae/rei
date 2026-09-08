@@ -34,7 +34,7 @@ private struct StubMilkyAssetResolver: MilkyAssetResolver {
         return replyTarget.reference
     }
 
-    func messageID(forSeq seq: Int64) async -> String? { "70000000\(seq)" }
+    func messageID(forSeq seq: Int64, in chat: Chat) async -> String? { "70000000\(seq)" }
 }
 
 private func isNumber(_ value: JSONValue?) -> Bool {
@@ -269,16 +269,21 @@ struct MilkyWireTests {
         #expect(data["uri"] == nil)
 
         // Outgoing: a single uri, which the resolver ingests.
-        let outgoing = await coder.decodeOutgoing([
-            ["type": "image", "data": ["uri": "https://example.com/cat.png"]]
-        ])
+        let outgoing = try await coder.decodeOutgoing(
+            [
+                ["type": "image", "data": ["uri": "https://example.com/cat.png"]]
+            ], in: Chat(scene: .group, peerID: "50001", selfID: "10001"))
         guard case .image(let ingested) = outgoing.first else {
             Issue.record("Expected an image segment to decode")
             return
         }
         #expect(ingested.source == .remote(url: "https://example.com/cat.png"))
         // Without a uri there is nothing to ingest, so the segment drops.
-        #expect(await coder.decodeOutgoing([["type": "image", "data": ["resource_id": "sha-img"]]]).isEmpty)
+        #expect(
+            try await coder.decodeOutgoing(
+                [["type": "image", "data": ["resource_id": "sha-img"]]],
+                in: Chat(scene: .group, peerID: "50001", selfID: "10001")
+            ).isEmpty)
     }
 
     @Test("mention_all represents @everyone and user mentions include name")
