@@ -7,14 +7,18 @@ import SwiftData
 /// contexts, and reference-model instances remain confined to `StoreExecutor`.
 public final class ReiStore: Sendable {
     let executor: StoreExecutor
+    /// The persistent database location, or nil for an in-memory workspace.
+    public let fileURL: URL?
 
     /// Opens a SwiftData store at `path`, creating and migrating it as needed.
     public init(path: String) throws {
+        fileURL = URL(fileURLWithPath: path)
         executor = StoreExecutor(modelContainer: try ReiContainerFactory.persistent(path: path))
     }
 
     /// An isolated in-memory store, for tests and previews.
     public init() throws {
+        fileURL = nil
         executor = StoreExecutor(modelContainer: try ReiContainerFactory.inMemory())
     }
 

@@ -49,7 +49,7 @@ public struct SettingsView: View {
                 .tabItem { Label("Personas", systemImage: "person.2") }
                 .tag(ReiSettingsTab.roles)
 
-                AboutTab()
+                AboutView(store: environment.store)
                     .tabItem { Label("About", systemImage: "info.circle") }
                     .tag(ReiSettingsTab.about)
             }
@@ -58,16 +58,21 @@ public struct SettingsView: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) {
-                    resetDraft()
-                    dismiss()
+                if selectedTab == .about {
+                    Button("Done") { dismiss() }
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Cancel", role: .cancel) {
+                        resetDraft()
+                        dismiss()
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(isSaving)
+                    Button("Save", action: save)
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!draft.isValid || isSaving)
                 }
-                .keyboardShortcut(.cancelAction)
-                .disabled(isSaving)
-                Button("Save", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!draft.isValid || isSaving)
             }
             .padding(12)
         }
@@ -652,26 +657,5 @@ private struct RoleAssignmentRow: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - About
-
-/// Which protocol versions this build speaks.
-private struct AboutTab: View {
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent("Rei for macOS", value: "QQ platform simulator and bot framework debugger")
-                LabeledContent("Supported Protocols", value: "OneBot V11 / V12, Milky 1.3")
-            } footer: {
-                Text(
-                    "Rei acts as the chat platform, allowing a bot framework to connect and drive complete conversation flows. All personas and messages are generated locally."
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
     }
 }

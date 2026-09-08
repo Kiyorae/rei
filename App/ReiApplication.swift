@@ -37,6 +37,7 @@ struct ReiApplication: App {
         .defaultLaunchBehavior(.presented)
         .commands {
             ReiCommands()
+            AboutCommands(selectedTab: $selectedSettingsTab)
             LogConsoleCommands()
         }
 
@@ -62,6 +63,20 @@ struct ReiApplication: App {
                         "The app environment could not be initialized, so settings cannot be read or saved.")
                 )
                 .frame(width: 460, height: 240)
+            }
+        }
+    }
+}
+
+private struct AboutCommands: Commands {
+    @Binding var selectedTab: ReiSettingsTab
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Rei") {
+                selectedTab = .about
+                openSettings()
             }
         }
     }
