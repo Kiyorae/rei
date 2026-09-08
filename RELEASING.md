@@ -4,6 +4,32 @@ Rei is distributed directly to users as a Developer ID-signed and Apple-notarize
 application. The current file-access contract requires App Sandbox to remain disabled, so this
 pipeline does not produce a Mac App Store build.
 
+## Developer Packaging
+
+The CI Release Build job also uploads a `Rei-developer-<commit>` Actions artifact containing a
+Universal 2 application ZIP and `SHA256SUMS`, retained for 14 days. This channel runs on pushes,
+pull requests, and manual CI dispatches without release-environment secrets. Download it from the
+run's Artifacts section while signed in to GitHub. The packaged app and FFmpeg use ad-hoc signatures;
+there is no Developer ID identity or Apple notarization. The protected Release workflow continues
+to produce the signed and notarized distribution artifacts described below.
+
+To build and package locally:
+
+```sh
+make package-developer
+```
+
+The target builds and verifies both architectures, then writes to `.build/developer`. Packaging
+signs a temporary copy and leaves the build product unchanged. Existing output files are rejected;
+move previous artifacts elsewhere before packaging again. To package an already built app into a
+fresh directory, use `./script/package-developer.sh <app-path> <output-directory>`.
+
+Extract the Actions artifact, run `shasum -a 256 -c SHA256SUMS`, extract the enclosed app ZIP, and
+move `Rei.app` to Applications. For a quarantined download, attempt to launch it, then approve that
+specific app using **System Settings > Privacy & Security > Open Anyway** if macOS blocks it.
+Verify the source commit before approving a developer build; these packages carry no verified
+publisher identity. See [Apple’s instructions for opening an app from an unknown developer](https://support.apple.com/guide/mac-help/mh40616/mac).
+
 ## Release Metadata
 
 `Configuration/Shared.xcconfig` is the source of truth for the public version and bundle build

@@ -28,6 +28,19 @@ notarized by Apple, stapled for offline Gatekeeper verification, and accompanied
 checksums and GitHub build provenance. See [RELEASING.md](RELEASING.md) for the complete trust and
 recovery model.
 
+### Developer Builds
+
+[CI runs](https://github.com/Kiyorae/rei/actions/workflows/ci.yml) provide a
+`Rei-developer-<commit>` artifact after the Release Build job succeeds, including manual runs.
+These Universal 2 builds require no Apple signing credentials and are retained for 14 days.
+They use ad-hoc signatures for local execution, with no Developer ID signature or notarization.
+
+Download and extract the Actions artifact, verify the enclosed ZIP with `shasum -a 256 -c
+SHA256SUMS`, then extract that ZIP and move `Rei.app` to Applications. GitHub requires signing in
+to download Actions artifacts. If macOS blocks the app, attempt to open it once, then use
+**System Settings > Privacy & Security > Open Anyway** for this app only, after checking the
+source commit. See [developer packaging](RELEASING.md#developer-packaging) for local builds.
+
 ## Supported Protocols
 
 - OneBot V11, with forward and reverse WebSocket connections

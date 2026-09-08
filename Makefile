@@ -240,3 +240,7 @@ export: verify-xcode
 	if [ -n "$${AUTHENTICATION_KEY_ID:-}" ]; then set -- "$$@" -authenticationKeyID "$$AUTHENTICATION_KEY_ID"; fi; \
 	if [ -n "$${AUTHENTICATION_KEY_ISSUER_ID:-}" ]; then set -- "$$@" -authenticationKeyIssuerID "$$AUTHENTICATION_KEY_ISSUER_ID"; fi; \
 	"$$@"
+
+.PHONY: package-developer
+package-developer: build verify-universal
+	./script/package-developer.sh "$(APP_PATH)" "$(CURDIR)/.build/developer"

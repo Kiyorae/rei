@@ -99,6 +99,18 @@ jobs:
       - name: Verify release architectures
         run: make verify-universal DERIVED_DATA_PATH="$RUNNER_TEMP/DerivedData"
 
+      - name: Package developer app
+        run: ./script/package-developer.sh "$RUNNER_TEMP/DerivedData/Build/Products/Release/Rei.app" .build/developer
+
+      - name: Upload developer app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Rei-developer-${{ github.sha }}
+          path: .build/developer/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Upload build log
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
