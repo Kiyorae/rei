@@ -5,7 +5,7 @@ binary=${1:?Usage: verify_media_tools.sh /path/to/ffmpeg [arm64 x86_64]}
 shift
 if [ ! -x "$binary" ]; then echo "Missing bundled FFmpeg executable: $binary" >&2; exit 1; fi
 
-for architecture in "$@"; do xcrun lipo -verify_arch "$architecture" "$binary"; done
+for architecture in "$@"; do xcrun lipo "$binary" -verify_arch "$architecture"; done
 dependencies=$(xcrun otool -L "$binary" | awk '/compatibility version/ {print $1}')
 while IFS= read -r dependency; do
     case "$dependency" in
