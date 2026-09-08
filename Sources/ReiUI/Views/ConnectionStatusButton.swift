@@ -4,10 +4,15 @@ import SwiftUI
 /// Connect/disconnect control that also exposes the current session state.
 struct ConnectionStatusButton: View {
     let environment: AppEnvironment
+    var showcaseConnection: ShowcaseConnection? = nil
 
     var body: some View {
         Button {
             Task {
+                if let showcaseConnection {
+                    await showcaseConnection.toggle()
+                    return
+                }
                 if environment.sessionState.isActive {
                     await environment.disconnect()
                 } else {
@@ -29,11 +34,19 @@ struct ConnectionStatusButton: View {
             }
         }
         .accessibilityLabel("\(protocolChoice.shortDisplayName), \(statusText)")
-        .accessibilityHint(environment.sessionState.isActive ? "Disconnect" : "Connect")
+        .accessibilityHint(isActive ? "Disconnect" : "Connect")
         .help(helpText)
     }
 
     private var indicatorColor: Color {
+        if let showcaseConnection {
+            switch showcaseConnection.state {
+            case .idle: return .secondary
+            case .connecting: return .orange
+            case .connected: return .green
+            case .failed: return .red
+            }
+        }
         switch environment.sessionState {
         case .connected where environment.roundTripTimeState == .timedOut:
             return .orange
@@ -48,7 +61,7 @@ struct ConnectionStatusButton: View {
     }
 
     private var protocolChoice: ProtocolChoice {
-        environment.activeProtocolChoice ?? environment.selectedProtocol
+        showcaseConnection == nil ? environment.activeProtocolChoice ?? environment.selectedProtocol : .milky
     }
 
     private var transportMode: TransportMode {
@@ -56,6 +69,15 @@ struct ConnectionStatusButton: View {
     }
 
     private var statusText: String {
+        if let showcaseConnection {
+            switch showcaseConnection.state {
+            case .idle: return "Not Connected"
+            case .connecting: return "Connecting"
+            case .failed: return "Connection Failed"
+            case .connected:
+                return showcaseConnection.roundTripTime.map { "API RTT \(durationLabel($0))" } ?? "Measuring"
+            }
+        }
         switch environment.sessionState {
         case .idle:
             return "Not Connected"
@@ -81,6 +103,18 @@ struct ConnectionStatusButton: View {
     }
 
     private var helpText: String {
+        if let showcaseConnection {
+            let state =
+                switch showcaseConnection.state {
+                case .idle: "Disconnected"
+                case .connecting: "Connecting"
+                case .connected: "Connected"
+                case .failed: showcaseConnection.errorMessage ?? "Connection Failed"
+                }
+            let measurement = showcaseConnection.roundTripTime.map { "API RTT \(durationLabel($0))" } ?? "API RTT —"
+            return
+                "Local Milky demo client · \(state) · \(measurement) · Click to \(isActive ? "Disconnect" : "Connect")"
+        }
         var components = [
             protocolChoice.displayName,
             transportMode.displayName,
@@ -102,6 +136,8 @@ struct ConnectionStatusButton: View {
     private var supportsRoundTripTime: Bool {
         transportMode == .webSocketServer || transportMode == .webSocketClient
     }
+
+    private var isActive: Bool { showcaseConnection?.isActive ?? environment.sessionState.isActive }
 
     private func durationLabel(_ duration: Duration) -> String {
         let components = duration.components

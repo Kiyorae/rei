@@ -99,6 +99,8 @@ does not wait for a consumer to connect before allowing simulated messages.
 
 客户端操作及按协议显示的能力范围见[客户端能力与协议契约](docs/client-capabilities.md)。
 
+本地构建并启动可运行 `./script/build_and_run.sh --verify`；它复用 Makefile 的 Debug 构建目标，并验证应用进程启动。
+
 - `ReiCore` contains the domain model and storage. Users, groups, and messages are persisted with
   SwiftData, while media uses content-addressed file storage. This module knows nothing about any
   wire protocol.
@@ -131,6 +133,29 @@ five rotated files. Every export creates a unique directory at the chosen locati
 JSON Lines records and a structured summary, without overwriting previous exports.
 
 ## Build and Run
+
+### 客户端演示模式
+
+```sh
+./script/build_and_run.sh --demo
+./script/build_and_run.sh --debug --demo
+```
+
+`--demo` 使用独立的内存数据库、演示偏好和媒体缓存，固定创建一个群聊与一个私聊。
+每 4 秒模拟一次收发或状态变化，并用平缓滚动跟随；约两分钟完成一轮，随后重新开始。
+切换会话或手动滚动会暂停自动演示，顶部 Demo 菜单可暂停、继续和控制跟随。
+正常启动不读取演示数据，演示也不会打开正常聊天数据库；无需连接机器人即可观看。
+
+演示自动启动本机 Milky 服务和内置客户端：仅监听 `127.0.0.1` 的系统分配端口，使用每次连接生成的令牌。
+左栏连接状态显示真实 API 往返耗时，每 4 秒刷新；它测量 `get_login_info`，不代表事件 WebSocket 或外部网络的 RTT。
+点击连接状态可断开或重新连接；暂停消息不会断开协议，关闭演示窗口会停止客户端和监听器。
+
+展示内容包括多语言文本、提及、引用、图片、循环 GIF、音频、视频、文件、嵌套转发、撤回、
+群消息 reaction，以及右栏的群公告、共享文件、精华和资料点赞。Raw Events 展示内置客户端的真实 API 请求和事件流量。
+Akame 图案用于演示群和机器人头像及图片消息；旋转 GIF 自动播放，并遵循系统减弱动态效果设置。
+
+素材位于 `Sources/ReiUI/Resources/Showcase`，随应用打包。重新生成旋转 GIF、提示音和视频可运行
+`make showcase-media`，使用系统 ImageIO 和仓库内置的 FFmpeg。
 
 ### Prerequisites
 

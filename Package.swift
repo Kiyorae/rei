@@ -31,7 +31,8 @@ let package = Package(
             name: "ReiUI",
             dependencies: [
                 "ReiCore", "ReiProtocol", "ReiOneBot", "ReiMilky", "ReiLogging",
-            ]
+            ],
+            resources: [.copy("Resources/Showcase")]
         ),
 
         .testTarget(

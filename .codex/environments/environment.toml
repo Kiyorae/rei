@@ -1,0 +1,15 @@
+version = 1
+name = "Rei"
+
+[setup]
+script = ""
+
+[[actions]]
+name = "Run"
+icon = "run"
+command = "./script/build_and_run.sh"
+
+[[actions]]
+name = "Demo"
+icon = "run"
+command = "./script/build_and_run.sh --demo"

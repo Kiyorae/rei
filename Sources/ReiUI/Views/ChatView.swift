@@ -7,6 +7,7 @@ struct ChatView: View {
     let inspect: (Chat, ConversationInspectorSection) -> Void
     let showingInspector: Bool
     let toggleInspector: () -> Void
+    var showcase: ShowcaseSession? = nil
     @State private var drafts: [ComposerDraftKey: ComposerDraft] = [:]
     @State private var pendingHistoryClear: PendingHistoryClear?
     @State private var historyClearError: String?
@@ -82,7 +83,7 @@ struct ChatView: View {
 
     private func transcript(for chat: Chat) -> some View {
         ChatTranscript(
-            environment: environment, chat: chat,
+            environment: environment, chat: chat, showcase: showcase,
             reply: { reply(to: $0, in: chat) }, reveal: { reveal($0, in: chat) },
             clearHistory: {
                 pendingHistoryClear = PendingHistoryClear(chat: chat, title: environment.conversationTitle(for: chat))

@@ -6,6 +6,7 @@ import SwiftUI
 struct ChatTranscript: View {
     let environment: AppEnvironment
     let chat: Chat
+    let showcase: ShowcaseSession?
     let reply: (Message) -> Void
     let reveal: (Message.ID) -> Void
     let clearHistory: () -> Void
@@ -45,7 +46,7 @@ struct ChatTranscript: View {
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .defaultScrollAnchor(.bottom, for: .alignment)
             .defaultScrollAnchor(
-                followsLatest ? .bottom : nil, for: .sizeChanges
+                followsLatest && showcase?.isFollowing != false ? .bottom : nil, for: .sizeChanges
             )
             .animation(animation, value: messageIDs)
             .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -59,6 +60,10 @@ struct ChatTranscript: View {
             }
             .onScrollPhaseChange { oldPhase, phase in
                 isUserScrolling = phase == .interacting || phase == .decelerating
+                if phase == .interacting {
+                    showcase?.isFollowing = false
+                    showcase?.isPlaying = false
+                }
                 if phase == .idle, oldPhase == .interacting || oldPhase == .decelerating {
                     followsLatest = isNearBottom
                     if isNearBottom { hasNewMessages = false }
@@ -66,7 +71,7 @@ struct ChatTranscript: View {
             }
             .onChange(of: messageIDs) { oldIDs, ids in
                 guard let newest = ids.last, newest != oldIDs.last else { return }
-                guard followsLatest else {
+                guard followsLatest, showcase?.isFollowing != false else {
                     hasNewMessages = true
                     return
                 }
@@ -75,6 +80,8 @@ struct ChatTranscript: View {
             .onChange(of: environment.messageReveal) { _, request in
                 guard let request, request.chat == chat else { return }
                 followsLatest = false
+                showcase?.isFollowing = false
+                showcase?.isPlaying = false
                 withAnimation(animation) { proxy.scrollTo(request.messageID, anchor: .center) }
             }
             .overlay(alignment: .bottomTrailing) {

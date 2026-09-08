@@ -169,6 +169,10 @@ test: verify-xcode
 media-tools: verify-xcode
 	./script/build_media_tools.sh
 
+.PHONY: showcase-media
+showcase-media: media-tools
+	./script/generate_showcase_media.sh
+
 build: verify-xcode media-tools
 	xcodebuild build \
 		-project "$(PROJECT)" \

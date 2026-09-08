@@ -19,12 +19,13 @@ struct ReiApplication: App {
     }
 
     var body: some Scene {
-        Window("Rei", id: "main") {
+        Window("Rei", id: launchState.windowID) {
             switch launchState {
-            case .ready(let environment):
+            case .ready(let environment, let showcase):
                 RootView(
                     environment: environment,
-                    selectedSettingsTab: $selectedSettingsTab
+                    selectedSettingsTab: $selectedSettingsTab,
+                    showcase: showcase
                 )
             case .failed(let failure):
                 StartupFailureView(failure: failure)
@@ -48,7 +49,7 @@ struct ReiApplication: App {
 
         Settings {
             switch launchState {
-            case .ready(let environment):
+            case .ready(let environment, _):
                 SettingsView(
                     environment: environment,
                     selectedTab: $selectedSettingsTab
@@ -68,14 +69,27 @@ struct ReiApplication: App {
 
 @MainActor
 private enum LaunchState {
-    case ready(AppEnvironment)
+    case ready(AppEnvironment, ShowcaseSession?)
     case failed(StartupFailure)
+
+    var windowID: String {
+        if case .ready(_, .some(_)) = self { return "showcase" }
+        return "main"
+    }
 
     static func load(appLog: AppLog) -> LaunchState {
         do {
+            if ShowcaseSession.requested(in: ProcessInfo.processInfo.arguments) {
+                let cache = try FileManager.default.url(
+                    for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+                ).appendingPathComponent("Rei/Showcase", isDirectory: true)
+                let showcase = try ShowcaseSession(appLog: appLog, cacheDirectory: cache)
+                appLog.record(.environmentLoaded)
+                return .ready(showcase.environment, showcase)
+            }
             let environment = try AppEnvironment.standard(appLog: appLog)
             appLog.record(.environmentLoaded)
-            return .ready(environment)
+            return .ready(environment, nil)
         } catch {
             appLog.record(.environmentLoadFailed(AppLogFailure(error)))
             return .failed(StartupFailure(error: error))

@@ -594,7 +594,7 @@ public actor ProtocolSession {
         await implementation.configureResourceEndpoint(host: settings.host, port: api.listeningPort ?? settings.port)
         guard generation == transportGeneration else { throw TransportError.cancelled }
         webhookClients = webhooks
-        setState(.ready(port: settings.port))
+        setState(.ready(port: api.listeningPort ?? settings.port))
         // The event socket is push-only; its ping does not describe API request
         // latency, so the session does not present it as service RTT.
         setRoundTripTime(.unsupported)
@@ -813,7 +813,7 @@ public actor ProtocolSession {
     }
 
     private func setMilkyIdleState() {
-        setState(.ready(port: settings.port))
+        setState(.ready(port: milkyServer?.listeningPort ?? settings.port))
     }
 
     private func canPromote(_ connection: WebSocketConnection, generation: UInt64) -> Bool {

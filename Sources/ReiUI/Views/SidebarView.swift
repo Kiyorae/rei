@@ -11,6 +11,7 @@ struct SidebarView: View {
     let addFriend: () -> Void
     let createGroup: () -> Void
     let inspect: (Chat, ConversationInspectorSection) -> Void
+    var showcaseConnection: ShowcaseConnection? = nil
 
     @State private var query = ""
     @State private var pendingDestructiveAction: SidebarDestructiveAction?
@@ -87,7 +88,7 @@ struct SidebarView: View {
 
             Divider()
             HStack(spacing: 8) {
-                ConnectionStatusButton(environment: environment)
+                ConnectionStatusButton(environment: environment, showcaseConnection: showcaseConnection)
                     .buttonStyle(.plain)
                     .lineLimit(1)
                 Spacer(minLength: 0)
