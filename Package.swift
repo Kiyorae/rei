@@ -20,7 +20,7 @@ let package = Package(
         .target(name: "ReiTransport", dependencies: ["ReiCore"]),
 
         // The protocol-neutral implementation contract shared by OneBot and Milky.
-        .target(name: "ReiProtocol", dependencies: ["ReiCore", "ReiTransport"]),
+        .target(name: "ReiProtocol", dependencies: ["ReiCore", "ReiTransport", .target(name: "CSilk")]),
 
         // Peer protocol implementations.
         .target(name: "ReiOneBot", dependencies: ["ReiProtocol"]),
@@ -41,6 +41,12 @@ let package = Package(
                 "ReiLogging",
                 .target(name: "ReiUI"),
             ]
+        ),
+        .target(
+            name: "CSilk",
+            exclude: ["LICENSE", "NOTICE.md"],
+            publicHeadersPath: "include",
+            cSettings: [.headerSearchPath("interface"), .headerSearchPath("src")]
         ),
     ]
 )

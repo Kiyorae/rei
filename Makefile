@@ -31,7 +31,7 @@ export CODE_SIGN_STYLE CODE_SIGN_IDENTITY DEVELOPMENT_TEAM CODE_SIGNING_ALLOWED
 export ALLOW_PROVISIONING_UPDATES AUTHENTICATION_KEY_PATH AUTHENTICATION_KEY_ID
 export AUTHENTICATION_KEY_ISSUER_ID
 
-.PHONY: analyze archive build check export format format-check project-check quality release-build-number release-metadata release-version show-settings test verify-universal verify-xcode
+.PHONY: analyze archive build check export format format-check media-tools project-check quality release-build-number release-metadata release-version show-settings test verify-universal verify-xcode
 
 check:
 	$(MAKE) quality
@@ -163,9 +163,13 @@ show-settings: verify-xcode
 		-destination '$(BUILD_DESTINATION)'
 
 test: verify-xcode
-	swift test -Xswiftc -warnings-as-errors
+	BUILD_ARCHS="$$(uname -m)" ./script/build_media_tools.sh
+	REI_TEST_FFMPEG="$(CURDIR)/.build/media-dependencies/bundle/ffmpeg" swift test -Xswiftc -warnings-as-errors
 
-build: verify-xcode
+media-tools: verify-xcode
+	./script/build_media_tools.sh
+
+build: verify-xcode media-tools
 	xcodebuild build \
 		-project "$(PROJECT)" \
 		-scheme "$(SCHEME)" \
@@ -187,6 +191,7 @@ verify-universal:
 		esac; \
 	done; \
 	printf 'Release architectures: %s\n' "$$architectures"
+	./script/verify_media_tools.sh "$(APP_PATH)/Contents/MacOS/ffmpeg" arm64 x86_64
 
 analyze: verify-xcode
 	xcodebuild analyze \
@@ -199,7 +204,7 @@ analyze: verify-xcode
 		ONLY_ACTIVE_ARCH=NO \
 		CODE_SIGNING_ALLOWED=NO
 
-archive: verify-xcode
+archive: verify-xcode media-tools
 	@set -eu; \
 	set -- xcodebuild clean archive \
 		-project "$$PROJECT" \

@@ -90,6 +90,35 @@ publishing again. A version bump is therefore the explicit release decision.
 
 ## Release Artifacts
 
+### 内置音视频工具
+
+发行包内置独立的 `Contents/MacOS/ffmpeg`，用户无需安装 Homebrew。`make build` 和
+`make archive` 会先运行 `script/build_media_tools.sh`，从
+`script/media-dependencies.lock` 固定的官方源码及 SHA-256 构建 FFmpeg、LAME、
+OpenCORE AMR、Speex；构建所需的 pkgconf 也从固定源码生成。Xcode 的 Copy Files
+阶段负责嵌入工具，并通过 `CodeSignOnCopy` 使用同一个发行身份签名。
+
+```sh
+make media-tools BUILD_ARCHS="arm64 x86_64"
+./script/verify_media_tools.sh .build/media-dependencies/bundle/ffmpeg arm64 x86_64
+```
+
+构建依赖完整 Xcode、系统自带的 make/curl/tar，不读取 Homebrew 的头文件或动态库。
+首次构建需要访问官方源码站，可使用标准 `HTTPS_PROXY` / `ALL_PROXY` 环境变量。
+源码包缓存于 `.build/media-dependencies/downloads`，后续构建按源码、构建脚本、
+Xcode/SDK、最低系统版本和架构组合复用结果。`MEDIA_BUILD_JOBS` 默认值为 4。
+直接从 Xcode 构建前，先运行一次上述 `make media-tools`。
+
+FFmpeg 使用 LGPL 3.0 配置，启用 Apache 2.0 的 OpenCORE AMR 时使用 `--enable-version3`，
+不启用 GPL/nonfree 组件。H.264 输出通过系统 VideoToolbox 实现。应用包的
+`Contents/Resources/MediaTools` 包含对应的源码压缩包、许可证、校验清单、构建脚本与
+每个架构的配置日志，随 ZIP/DMG 一同发行。脚本检查架构、编码器、许可证及 `otool -L`
+结果，任何非系统动态库依赖都会使打包失败。
+独立编入主程序的 SILK SDK 许可证及来源声明保存在 `Contents/Resources/SILK`。
+
+`make test` 构建宿主架构并通过 `REI_TEST_FFMPEG` 向转码集成测试提供该固定产物。
+协议测试不应从开发机的 `/opt/homebrew/bin` 或 `PATH` 隐式寻找其他 FFmpeg。
+
 Each GitHub Release contains:
 
 - `Rei-vMAJOR.MINOR.PATCH.zip`, containing the stapled application bundle

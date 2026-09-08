@@ -9,11 +9,52 @@
 /* Begin PBXBuildFile section */
 		516348BC30482DCE0009B80D /* ReiUI in Frameworks */ = {isa = PBXBuildFile; productRef = 516348BB30482DCE0009B80D /* ReiUI */; };
 		516348BE30482DCE0009B80D /* ReiLogging in Frameworks */ = {isa = PBXBuildFile; productRef = 516348BD30482DCE0009B80D /* ReiLogging */; };
+		F09E0F100000000000000001 /* ffmpeg in Embed Media Helper */ = {isa = PBXBuildFile; fileRef = F09E0F100000000000000003 /* ffmpeg */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		F09E0F100000000000000002 /* MediaTools in Embed Media Sources */ = {isa = PBXBuildFile; fileRef = F09E0F100000000000000004 /* MediaTools */; };
+		F09E0F100000000000000007 /* SILK License in Embed SILK Notices */ = {isa = PBXBuildFile; fileRef = F09E0F100000000000000009 /* SILK License */; };
+		F09E0F100000000000000008 /* SILK Notice in Embed SILK Notices */ = {isa = PBXBuildFile; fileRef = F09E0F10000000000000000A /* SILK Notice */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F09E0F100000000000000005 /* Embed Media Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (F09E0F100000000000000001 /* ffmpeg in Embed Media Helper */, );
+			name = "Embed Media Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F09E0F100000000000000006 /* Embed Media Sources */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (F09E0F100000000000000002 /* MediaTools in Embed Media Sources */, );
+			name = "Embed Media Sources";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F09E0F10000000000000000B /* Embed SILK Notices */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = SILK;
+			dstSubfolderSpec = 7;
+			files = (
+				F09E0F100000000000000007 /* SILK License in Embed SILK Notices */,
+				F09E0F100000000000000008 /* SILK Notice in Embed SILK Notices */,
+			);
+			name = "Embed SILK Notices";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		516348AC30482D400009B80D /* Rei.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rei.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		516348C030482DCE0009B80D /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		F09E0F100000000000000003 /* ffmpeg */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; name = ffmpeg; path = .build/media-dependencies/bundle/ffmpeg; sourceTree = SOURCE_ROOT; };
+		F09E0F100000000000000004 /* MediaTools */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MediaTools; path = .build/media-dependencies/bundle/MediaTools; sourceTree = SOURCE_ROOT; };
+		F09E0F100000000000000009 /* SILK License */ = {isa = PBXFileReference; lastKnownFileType = text; name = "SILK License"; path = Sources/CSilk/LICENSE; sourceTree = SOURCE_ROOT; };
+		F09E0F10000000000000000A /* SILK Notice */ = {isa = PBXFileReference; lastKnownFileType = text; name = "SILK Notice"; path = Sources/CSilk/NOTICE.md; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -53,6 +94,10 @@
 			children = (
 				516348AE30482D400009B80D /* App */,
 				516348C130482DCE0009B80D /* Configuration */,
+				F09E0F100000000000000003 /* ffmpeg */,
+				F09E0F100000000000000004 /* MediaTools */,
+				F09E0F100000000000000009 /* SILK License */,
+				F09E0F10000000000000000A /* SILK Notice */,
 				516348AD30482D400009B80D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -83,6 +128,9 @@
 				516348A830482D400009B80D /* Sources */,
 				516348A930482D400009B80D /* Frameworks */,
 				516348AA30482D400009B80D /* Resources */,
+				F09E0F100000000000000005 /* Embed Media Helper */,
+				F09E0F100000000000000006 /* Embed Media Sources */,
+				F09E0F10000000000000000B /* Embed SILK Notices */,
 			);
 			buildRules = (
 			);

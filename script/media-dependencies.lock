@@ -1,0 +1,6 @@
+# name|version|archive|sha256|official_source_url
+ffmpeg|9.0.1|ffmpeg-9.0.1.tar.xz|cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635|https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz
+lame|4.0|lame-4.0.tar.gz|3df5124d5ad3a98312ffd7ba6a9b36230e4f8a3e66d3ce0f425e336c32d216eb|https://downloads.sourceforge.net/project/lame/lame/4.0/lame-4.0.tar.gz
+opencore-amr|0.1.6|opencore-amr-0.1.6.tar.gz|483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1|https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz
+speex|1.2.1|speex-1.2.1.tar.gz|4b44d4f2b38a370a2d98a78329fefc56a0cf93d1c1be70029217baae6628feea|https://downloads.xiph.org/releases/speex/speex-1.2.1.tar.gz
+pkgconf|3.0.5|pkgconf-3.0.5.tar.xz|3acd3a8a3cce65a8d620321855d92fb602e026cbe8e13ee36bdec58483b59ace|https://distfiles.ariadne.space/pkgconf/pkgconf-3.0.5.tar.xz
