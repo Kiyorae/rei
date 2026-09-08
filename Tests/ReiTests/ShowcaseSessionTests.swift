@@ -249,7 +249,13 @@ struct ShowcaseSessionTests {
         #expect(environment.messages.first?.id == original.id)
     }
 
-    @Test("Appending a message preserves the already visible animated image view")
+    @Test(
+        "Appending a message preserves the already visible animated image view",
+        .enabled(
+            if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            "Reduced Motion uses a static image instead of an animated NSImageView"
+        )
+    )
     func preservesVisibleRows() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -269,10 +275,14 @@ struct ShowcaseSessionTests {
             window.close()
         }
         for _ in 0..<4 { try await session.advance() }
-        try await Task.sleep(for: .milliseconds(900))
         func animatedImage(in view: NSView) -> NSImageView? {
             if let image = view as? NSImageView, image.animates { return image }
             return view.subviews.lazy.compactMap { animatedImage(in: $0) }.first
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while animatedImage(in: controller.view) == nil && clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
         }
         let original = try #require(animatedImage(in: controller.view))
         try await session.advance()
