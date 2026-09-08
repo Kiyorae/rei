@@ -97,6 +97,8 @@ does not wait for a consumer to connect before allowing simulated messages.
 
 ## Architecture
 
+客户端操作及按协议显示的能力范围见[客户端能力与协议契约](docs/client-capabilities.md)。
+
 - `ReiCore` contains the domain model and storage. Users, groups, and messages are persisted with
   SwiftData, while media uses content-addressed file storage. This module knows nothing about any
   wire protocol.

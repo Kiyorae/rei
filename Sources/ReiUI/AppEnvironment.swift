@@ -23,6 +23,8 @@ public final class AppEnvironment {
     public var groups: [Group] = []
     /// Conversations with traffic, most recent first.
     public var conversations: [ConversationSummary] = []
+    public internal(set) var conversationStates: [ConversationState] = []
+    var messageReveal: MessageReveal?
     /// Messages in the selected conversation, oldest first.
     public var messages: [Message] = []
     public var pendingRequests: [PendingRequest] = []
@@ -56,12 +58,14 @@ public final class AppEnvironment {
     private var session: ProtocolSession?
     private var observationTasks: [Task<Void, Never>] = []
     private var conversationObservation: Task<Void, Never>?
+    private var conversationStateObservation: Task<Void, Never>?
     private var requestObservation: Task<Void, Never>?
     private var friendshipObservation: Task<Void, Never>?
     private var chatObservation: Task<Void, Never>?
     private var memberObservation: Task<Void, Never>?
     private var sessionObservationTasks: [Task<Void, Never>] = []
     private let mediaService: MediaService
+    private let mediaConversion: MediaConversionService
     private let defaults: UserDefaults
     private var connectionGeneration: UInt64 = 0
     private var connectionRequested = false
@@ -81,6 +85,7 @@ public final class AppEnvironment {
         self.defaults = defaults
         platform = PlatformService(store: store)
         mediaService = MediaService(assetStore: assetStore, store: store)
+        mediaConversion = MediaConversionService(media: mediaService)
         let protocolChoice = SettingsStorage.loadProtocol(defaults: defaults)
         var connectionSettings = SettingsStorage.load(defaults: defaults)
         let needsMigration = SettingsStorage.needsConnectionSettingsMigration(defaults: defaults)
@@ -161,21 +166,29 @@ public final class AppEnvironment {
     /// Restarts the conversation and request queries against the current bot.
     private func refreshConversations() {
         conversationObservation?.cancel()
+        conversationStateObservation?.cancel()
         requestObservation?.cancel()
         friendshipObservation?.cancel()
         conversations = []
+        conversationStates = []
         pendingRequests = []
         friendships = []
         friendshipsAreLoaded = false
 
         guard let botUserID else {
             conversationObservation = nil
+            conversationStateObservation = nil
             requestObservation = nil
             friendshipObservation = nil
             return
         }
         conversationObservation = observe(store.observeConversations(selfID: botUserID)) { [weak self] value in
             self?.conversations = value
+        }
+        conversationStateObservation = observe(store.observeConversationStates(selfID: botUserID)) {
+            [weak self] value in
+            guard self?.botUserID == botUserID else { return }
+            self?.conversationStates = value
         }
         requestObservation = observe(store.observePendingRequests(selfID: botUserID)) { [weak self] value in
             self?.pendingRequests = value
@@ -190,25 +203,24 @@ public final class AppEnvironment {
     /// Watches the selected conversation. Replaces any previous watch, since only
     /// one chat is visible at a time.
     public func selectChat(_ chat: Chat?) {
-        let selectionChanged = selectedChat != chat
+        guard selectedChat != chat else { return }
+        messageReveal = nil
         selectedChat = chat
         chatObservation?.cancel()
         memberObservation?.cancel()
         messages = []
         guard let chat else {
-            if selectionChanged {
-                appLog.record(.operationCompleted(.closeChat))
-            }
+            appLog.record(.operationCompleted(.closeChat))
             return
         }
-        if selectionChanged {
-            appLog.record(.operationCompleted(.selectChat))
-        }
+        appLog.record(.operationCompleted(.selectChat))
         chatObservation = observe(store.observeMessages(in: chat)) { [weak self] value in
+            guard self?.selectedChat == chat else { return }
             self?.messages = value
         }
         if chat.scene == .group {
             memberObservation = observe(store.observeMembers(groupID: chat.peerID)) { [weak self] value in
+                guard self?.selectedChat == chat else { return }
                 self?.replaceMembers(value.map(\.member), in: chat.peerID)
             }
         }
@@ -230,6 +242,7 @@ public final class AppEnvironment {
         Task { @MainActor [weak self] in
             do {
                 for try await value in sequence {
+                    try Task.checkCancellation()
                     await apply(value)
                 }
             } catch is CancellationError {
@@ -514,7 +527,130 @@ public final class AppEnvironment {
     public func recall(_ message: Message) async {
         guard let activeUserID else { return }
         await performReportingFailure(.recallMessage) {
+            try self.validateMessageOperation(in: message.chat)
             try await self.platform.recallMessage(id: message.id, operatorID: activeUserID)
+        }
+    }
+
+    public func setReaction(_ reaction: Reaction, on message: Message, added: Bool) async {
+        guard let activeUserID else { return }
+        await performReportingFailure(.reactToMessage) {
+            try self.validateMessageOperation(in: message.chat)
+            guard self.supportsReactions(in: message.chat) else {
+                throw PlatformError.notPermitted("The current protocol does not support reactions in this conversation")
+            }
+            try await self.platform.react(
+                messageID: message.id, userID: activeUserID, reaction: reaction, added: added
+            )
+        }
+    }
+
+    var effectiveProtocol: ProtocolChoice { activeProtocolChoice ?? selectedProtocol }
+
+    var pinnedChats: Set<Chat> {
+        guard effectiveProtocol == .milky else { return [] }
+        return Set(conversationStates.filter(\.isPinned).map(\.chat))
+    }
+
+    func isPinned(_ chat: Chat) -> Bool { pinnedChats.contains(chat) }
+
+    func setPinned(_ pinned: Bool, in chat: Chat) async {
+        await performReportingFailure(.pinConversation) {
+            try self.validateMessageOperation(in: chat)
+            guard self.effectiveProtocol == .milky else {
+                throw PlatformError.notPermitted("This protocol does not support conversation pins")
+            }
+            try await self.platform.setPeerPin(in: chat, isPinned: pinned)
+        }
+    }
+
+    func supportsReactions(in chat: Chat) -> Bool {
+        effectiveProtocol == .milky && chat.scene == .group
+    }
+
+    var supportsGroupModeration: Bool { effectiveProtocol != .oneBotV12 }
+
+    func supportsNudges(in chat: Chat) -> Bool {
+        switch effectiveProtocol {
+        case .milky: return chat.scene != .temp
+        case .oneBotV11: return chat.scene == .group
+        case .oneBotV12: return false
+        }
+    }
+
+    func nudge(_ userID: User.ID, in chat: Chat) async -> Bool {
+        guard let activeUserID else { return false }
+        do {
+            try await performThrowing(.nudgeUser) {
+                try self.validateMessageOperation(in: chat)
+                guard self.supportsNudges(in: chat) else {
+                    throw PlatformError.notPermitted("Nudges are unavailable in this conversation")
+                }
+                try await self.platform.poke(in: chat, senderID: activeUserID, targetID: userID)
+            }
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    func muteMember(_ member: GroupMember, in chat: Chat, duration: TimeInterval) async {
+        guard let activeUserID else { return }
+        await performReportingFailure(.muteGroupMember) {
+            try self.validateGroupModeration(in: chat)
+            try await self.platform.muteMember(
+                groupID: chat.peerID, userID: member.userID, operatorID: activeUserID, duration: duration
+            )
+        }
+    }
+
+    func setAdmin(_ member: GroupMember, in chat: Chat, granted: Bool) async {
+        guard let activeUserID else { return }
+        await performReportingFailure(.setGroupAdmin) {
+            try self.validateGroupModeration(in: chat)
+            try await self.platform.setAdmin(
+                groupID: chat.peerID, userID: member.userID, operatorID: activeUserID, granted: granted
+            )
+        }
+    }
+
+    func setWholeMute(in chat: Chat, muted: Bool) async {
+        guard let activeUserID else { return }
+        await performReportingFailure(.muteGroup) {
+            try self.validateGroupModeration(in: chat)
+            try await self.platform.setWholeMute(groupID: chat.peerID, operatorID: activeUserID, muted: muted)
+        }
+    }
+
+    private func validateGroupModeration(in chat: Chat) throws {
+        try validateMessageOperation(in: chat)
+        guard chat.scene == .group, supportsGroupModeration else {
+            throw PlatformError.notPermitted("Group moderation is unavailable with this protocol")
+        }
+    }
+
+    func canInteract(in chat: Chat) -> Bool {
+        guard canSubmitMessages, chat.selfID == botUserID, let activeUserID else { return false }
+        if chat.scene == .group { return role(of: activeUserID, in: chat.peerID) != nil }
+        return chat.counterpartID(for: activeUserID) != nil
+    }
+
+    func canRecall(_ message: Message) -> Bool {
+        guard !message.isRecalled, canInteract(in: message.chat), let activeUserID else { return false }
+        if message.senderID == activeUserID { return true }
+        guard message.scene == .group,
+            let actorRole = role(of: activeUserID, in: message.peerID), actorRole > .member
+        else { return false }
+        return role(of: message.senderID, in: message.peerID).map { actorRole > $0 } ?? true
+    }
+
+    private func validateMessageOperation(in chat: Chat) throws {
+        guard canSubmitMessages, chat.selfID == botUserID,
+            activeBotUserID == nil || activeBotUserID == chat.selfID
+        else {
+            throw PlatformError.notPermitted("Wait for the matching bot connection before changing this message")
         }
     }
 
@@ -655,7 +791,7 @@ public final class AppEnvironment {
                 version: protocolChoice == .oneBotV11 ? .v11 : .v12,
                 selfID: botUserID,
                 platform: platform,
-                assetResolver: OneBotAssetResolver(media: mediaService)
+                assetResolver: OneBotAssetResolver(media: mediaService, conversion: mediaConversion)
             )
             implementation = oneBot
         case .milky:
@@ -724,14 +860,6 @@ public final class AppEnvironment {
 
         do {
             try await session.start()
-            guard isCurrent(session, generation: generation) else {
-                await session.stop()
-                return false
-            }
-            await mediaService.setBaseURL(
-                host: connectionSettings.host,
-                port: connectionSettings.port
-            )
             guard isCurrent(session, generation: generation) else {
                 await session.stop()
                 return false
@@ -835,7 +963,7 @@ public final class AppEnvironment {
     }
 
     /// Runs an app operation whose caller owns its local error presentation.
-    private func performThrowing<Value>(
+    func performThrowing<Value>(
         _ operation: AppLogOperation,
         _ body: @escaping () async throws -> Value
     ) async throws -> Value {
@@ -959,6 +1087,24 @@ public final class AppEnvironment {
         }
     }
 
+    /// Resolves cached attachment bytes without trusting the original source URL.
+    func attachmentURL(for asset: Asset) async throws -> URL {
+        guard await mediaService.exists(asset.id) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return URL(fileURLWithPath: await mediaService.path(for: asset.id))
+    }
+
+    func convertedMediaURL(for asset: Asset, isVideo: Bool) async throws -> URL {
+        let converted: Asset
+        if isVideo {
+            converted = try await mediaConversion.convertVideo(asset: asset)
+        } else {
+            converted = try await mediaConversion.convertAudio(asset: asset, to: "wav")
+        }
+        return try await attachmentURL(for: converted)
+    }
+
     /// Loads one quoted message without leaking its identifier into diagnostics.
     public func quotedMessage(id: Message.ID) async -> Message? {
         do {
@@ -966,6 +1112,37 @@ public final class AppEnvironment {
         } catch {
             recordOperationFailure(.loadQuotedMessage, error)
             return nil
+        }
+    }
+
+    /// Extends the live transcript back to a quoted message outside the initial
+    /// window. The same range stays observed as new messages and recalls arrive.
+    @discardableResult
+    func revealMessage(id: Message.ID, in chat: Chat) async -> Bool {
+        do {
+            guard let target = try await store.message(id: id), target.chat == chat else {
+                throw PlatformError.messageNotFound(id)
+            }
+            guard selectedChat == chat else { return false }
+            if messages.contains(where: { $0.id == id }) {
+                messageReveal = MessageReveal(chat: chat, messageID: id)
+                return true
+            }
+            let sequence = min(target.seq, messages.first?.seq ?? target.seq)
+            let history = try await store.messages(in: chat, startingAt: sequence)
+            guard selectedChat == chat else { return false }
+            messages = history
+            chatObservation?.cancel()
+            chatObservation = observe(store.observeMessages(in: chat, startingAt: sequence)) { [weak self] value in
+                guard self?.selectedChat == chat else { return }
+                self?.messages = value
+            }
+            messageReveal = MessageReveal(chat: chat, messageID: id)
+            return true
+        } catch {
+            recordOperationFailure(.loadQuotedMessage, error)
+            lastError = error.localizedDescription
+            return false
         }
     }
 
@@ -998,6 +1175,12 @@ public final class AppEnvironment {
             members[MemberKey(groupID: groupID, userID: member.userID)] = member
         }
     }
+}
+
+struct MessageReveal: Equatable {
+    let id = UUID()
+    let chat: Chat
+    let messageID: Message.ID
 }
 
 extension ProtocolChoice {

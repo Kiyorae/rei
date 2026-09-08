@@ -56,7 +56,7 @@ public struct ReiCommands: Commands {
 
             Divider()
 
-            Button(actions?.isInspectorPresented == true ? "Hide Raw Events" : "Show Raw Events") {
+            Button(actions?.isInspectorPresented == true ? "Hide Inspector" : "Show Inspector") {
                 actions?.toggleInspector()
             }
             .keyboardShortcut("i", modifiers: [.command, .option])

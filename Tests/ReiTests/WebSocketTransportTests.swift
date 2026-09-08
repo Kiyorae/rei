@@ -185,6 +185,11 @@ struct WebSocketTransportTests {
             }
             #expect(environment.sessionState.isConnected)
 
+            environment.selectedProtocol = .milky
+            #expect(environment.effectiveProtocol == (version == .v11 ? .oneBotV11 : .oneBotV12))
+            #expect(!environment.supportsReactions(in: Chat(scene: .group, peerID: group.id, selfID: oldBot.id)))
+            environment.selectedProtocol = version == .v11 ? .oneBotV11 : .oneBotV12
+
             await environment.setBotUser(newBot.id)
             let connections = try await acceptedConnections.value
             #expect(connections[0].id != connections[1].id)

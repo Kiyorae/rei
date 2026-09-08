@@ -1,15 +1,18 @@
+import ReiCore
 import ReiProtocol
 import SwiftUI
 
 /// The singleton main window: a stable conversation sidebar, a wide chat canvas,
-/// and an optional protocol inspector.
+/// and a contextual inspector for conversation tools and protocol traffic.
 @MainActor
 public struct RootView: View {
     let environment: AppEnvironment
     @Binding private var selectedSettingsTab: ReiSettingsTab
 
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingInspector = true
+    @SceneStorage("workspace.showingSidebar") private var showingSidebar = true
+    @SceneStorage("workspace.showingInspector") private var showingInspector = true
+    @SceneStorage("workspace.inspectorTab") private var inspectorTab = WorkspaceInspectorTab.conversation
+    @State private var conversationSection = ConversationInspectorSection.overview
     @State private var showingNewUser = false
     @State private var showingAddFriend = false
     @State private var showingNewGroup = false
@@ -23,69 +26,41 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(
-                environment: environment,
-                selectedSettingsTab: $selectedSettingsTab
+        HSplitView {
+            if showingSidebar {
+                SidebarView(
+                    environment: environment,
+                    selectedSettingsTab: $selectedSettingsTab,
+                    createUser: { showingNewUser = true },
+                    addFriend: { showingAddFriend = true },
+                    createGroup: { showingNewGroup = true },
+                    inspect: inspectConversation
+                )
+                .background { SidebarMaterial().ignoresSafeArea(.container, edges: .vertical) }
+                .frame(minWidth: 230, idealWidth: 260, maxWidth: 320)
+            }
+            ChatView(
+                environment: environment, inspect: inspectConversation,
+                showingInspector: showingInspector, toggleInspector: { showingInspector.toggle() }
             )
-            .navigationSplitViewColumnWidth(min: 230, ideal: 280, max: 420)
-        } detail: {
-            ChatView(environment: environment)
-                .inspector(isPresented: $showingInspector) {
-                    TrafficInspectorView(
-                        environment: environment,
-                        close: { showingInspector = false }
-                    )
-                    .inspectorColumnWidth(min: 300, ideal: 400, max: 620)
-                }
+            .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+            if showingInspector {
+                WorkspaceInspectorView(
+                    environment: environment, tab: $inspectorTab, section: $conversationSection,
+                    close: { showingInspector = false }
+                )
+                .background { SidebarMaterial().ignoresSafeArea(.container, edges: .vertical) }
+                .frame(minWidth: 320, idealWidth: 360, maxWidth: 560)
+            }
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationTitle(environment.selectedChat.map { environment.conversationTitle(for: $0) } ?? "Rei")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                ConnectionStatusButton(environment: environment)
-            }
-            .sharedBackgroundVisibility(.hidden)
-
-            ToolbarSpacer(.fixed)
-
-            ToolbarItem {
-                Menu {
-                    Button("New Persona…", systemImage: "person.badge.plus") {
-                        showingNewUser = true
-                    }
-
-                    Button("Add Friend…", systemImage: "person.badge.plus") {
-                        showingAddFriend = true
-                    }
-                    .disabled(environment.addableFriendUsers.isEmpty)
-
-                    Button("New Group…", systemImage: "person.3") {
-                        showingNewGroup = true
-                    }
-                    .disabled(environment.users.isEmpty)
-                } label: {
-                    Label("New", systemImage: "plus")
+                Button(showingSidebar ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.leading") {
+                    showingSidebar.toggle()
                 }
-                .help("Create a persona, add a friend, or create a group")
-            }
-
-            ToolbarSpacer(.fixed)
-
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showingInspector.toggle()
-                } label: {
-                    Label(
-                        showingInspector ? "Hide Raw Events" : "Show Raw Events",
-                        systemImage: "sidebar.trailing"
-                    )
-                }
-                .help(showingInspector ? "Hide Raw Events (⌥⌘I)" : "Show Raw Events (⌥⌘I)")
-
-                SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .help("Connection and persona settings (⌘,)")
+                .help(showingSidebar ? "Hide Sidebar" : "Show Sidebar")
             }
         }
         .sheet(isPresented: $showingNewUser) {
@@ -112,6 +87,13 @@ public struct RootView: View {
         .frame(minWidth: 980, minHeight: 620)
     }
 
+    private func inspectConversation(_ chat: Chat, _ section: ConversationInspectorSection) {
+        environment.selectChat(chat)
+        conversationSection = section
+        inspectorTab = .conversation
+        showingInspector = true
+    }
+
     private var commandActions: ReiCommandActions {
         ReiCommandActions(
             createUser: { showingNewUser = true },
@@ -132,117 +114,5 @@ public struct RootView: View {
                 await environment.connect()
             }
         }
-    }
-}
-
-/// Connect/disconnect control that also exposes the current session state.
-private struct ConnectionStatusButton: View {
-    let environment: AppEnvironment
-
-    var body: some View {
-        Button {
-            Task {
-                if environment.sessionState.isActive {
-                    await environment.disconnect()
-                } else {
-                    await environment.connect()
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(indicatorColor)
-                    .frame(width: 7, height: 7)
-                Text(protocolChoice.shortDisplayName)
-                    .font(.callout)
-                Text("·")
-                    .foregroundStyle(.tertiary)
-                Text(statusText)
-                    .font(.callout)
-                    .monospacedDigit()
-            }
-        }
-        .accessibilityLabel("\(protocolChoice.shortDisplayName), \(statusText)")
-        .accessibilityHint(environment.sessionState.isActive ? "Disconnect" : "Connect")
-        .help(helpText)
-    }
-
-    private var indicatorColor: Color {
-        switch environment.sessionState {
-        case .connected where environment.roundTripTimeState == .timedOut:
-            return .orange
-        case .connected:
-            return .green
-        case .ready:
-            return .green
-        case .listening, .connecting: return .orange
-        case .failed: return .red
-        case .idle: return .secondary
-        }
-    }
-
-    private var protocolChoice: ProtocolChoice {
-        environment.activeProtocolChoice ?? environment.selectedProtocol
-    }
-
-    private var transportMode: TransportMode {
-        environment.activeTransportMode ?? environment.settings.transport
-    }
-
-    private var statusText: String {
-        switch environment.sessionState {
-        case .idle:
-            return "Not Connected"
-        case .listening(let port):
-            return "Listening on :\(port)"
-        case .ready(let port):
-            return "Serving on :\(port)"
-        case .connecting:
-            return "Connecting"
-        case .failed:
-            return "Connection Failed"
-        case .connected:
-            guard supportsRoundTripTime else {
-                return "Serving"
-            }
-            switch environment.roundTripTimeState {
-            case .measured(let duration): return durationLabel(duration)
-            case .timedOut: return "Ping Timed Out"
-            case .measuring, .unavailable: return "Measuring"
-            case .unsupported: return "RTT —"
-            }
-        }
-    }
-
-    private var helpText: String {
-        var components = [
-            protocolChoice.displayName,
-            transportMode.displayName,
-            environment.sessionState.displayName,
-        ]
-
-        if case .measured(let duration) = environment.roundTripTimeState,
-            supportsRoundTripTime
-        {
-            components.append("RTT \(durationLabel(duration))")
-        } else if !supportsRoundTripTime, environment.sessionState.isActive {
-            components.append("Milky serves independent API and event endpoints without a single connection RTT")
-        }
-
-        components.append(environment.sessionState.isActive ? "Click to Disconnect (⇧⌘K)" : "Click to Connect (⇧⌘K)")
-        return components.joined(separator: " · ")
-    }
-
-    private var supportsRoundTripTime: Bool {
-        transportMode == .webSocketServer || transportMode == .webSocketClient
-    }
-
-    private func durationLabel(_ duration: Duration) -> String {
-        let components = duration.components
-        let milliseconds =
-            Double(components.seconds) * 1_000
-            + Double(components.attoseconds) / 1_000_000_000_000_000
-        guard milliseconds >= 1 else { return "<1 ms" }
-        return "\(Int(milliseconds.rounded())) ms"
     }
 }

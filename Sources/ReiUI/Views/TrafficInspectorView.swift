@@ -10,13 +10,12 @@ import SwiftUI
 /// the payload verbatim rather than a summarised form.
 struct TrafficInspectorView: View {
     let environment: AppEnvironment
-    let close: () -> Void
 
     @State private var selection: TrafficEntry.ID?
     @State private var query = ""
     @State private var directionFilter: DirectionFilter = .all
     @State private var clearedBefore: Date?
-    @Namespace private var directionFilterGlassNamespace
+    @Namespace private var directionGlassNamespace
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,12 +31,10 @@ struct TrafficInspectorView: View {
                 emptyState
                     .frame(maxHeight: .infinity)
             } else {
-                entryList
-
-                Divider()
-
-                payloadPane
-                    .frame(minHeight: 160, idealHeight: 220)
+                VSplitView {
+                    entryList.frame(minHeight: 120)
+                    payloadPane.frame(minHeight: 160, idealHeight: 260)
+                }
             }
         }
     }
@@ -57,11 +54,6 @@ struct TrafficInspectorView: View {
 
             Spacer(minLength: 0)
 
-            Button("Hide Raw Events", systemImage: "sidebar.trailing", action: close)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .help("Hide Raw Events (⌥⌘I)")
         }
         .padding(.horizontal, 10)
         .frame(height: 40)
@@ -83,9 +75,7 @@ struct TrafficInspectorView: View {
             HStack(spacing: 8) {
                 GlassEffectContainer(spacing: 6) {
                     HStack(spacing: 6) {
-                        ForEach(DirectionFilter.allCases) { option in
-                            directionButton(option)
-                        }
+                        ForEach(DirectionFilter.allCases) { option in directionButton(option) }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -108,43 +98,25 @@ struct TrafficInspectorView: View {
     }
 
     private func directionButton(_ option: DirectionFilter) -> some View {
-        let isSelected = directionFilter == option
-
+        let selected = directionFilter == option
         return Button {
-            guard !isSelected else { return }
-            withAnimation(.snappy(duration: 0.22, extraBounce: 0)) {
-                directionFilter = option
-            }
+            withAnimation(.snappy(duration: 0.22)) { directionFilter = option }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: option.symbolName)
-                    .foregroundStyle(
-                        isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(option.tint)
-                    )
-                    .frame(width: 14)
-
-                if isSelected {
-                    Text(option.label)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .transition(.blurReplace.combined(with: .opacity))
-                }
+                if selected { Text(option.label).fontWeight(.semibold) }
             }
             .font(.caption)
-            .lineLimit(1)
-            .frame(width: isSelected ? 84 : 32, height: 28)
+            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(option.tint))
+            .frame(width: selected ? 84 : 32, height: 28)
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .glassEffect(
-            isSelected ? .regular.tint(option.tint).interactive() : .regular.interactive(),
-            in: .capsule
-        )
-        .glassEffectID(option.id, in: directionFilterGlassNamespace)
-        .glassEffectTransition(.matchedGeometry)
+        .glassEffect(selected ? .regular.tint(option.tint).interactive() : .regular.interactive(), in: .capsule)
+        .glassEffectID(option.id, in: directionGlassNamespace)
         .accessibilityLabel(option.label)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
-        .help("Show \(option.label.lowercased()) events only")
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .help("Show \(option.label.lowercased()) events")
     }
 
     private var visibleEntries: [TrafficEntry] {
@@ -171,6 +143,7 @@ struct TrafficInspectorView: View {
                 }
         }
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
     }
 
     private var emptyState: some View {

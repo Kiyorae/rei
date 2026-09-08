@@ -7,6 +7,10 @@ import SwiftUI
 struct SidebarView: View {
     let environment: AppEnvironment
     @Binding var selectedSettingsTab: ReiSettingsTab
+    let createUser: () -> Void
+    let addFriend: () -> Void
+    let createGroup: () -> Void
+    let inspect: (Chat, ConversationInspectorSection) -> Void
 
     @State private var query = ""
     @State private var pendingDestructiveAction: SidebarDestructiveAction?
@@ -14,11 +18,23 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            SidebarHeader(
+                environment: environment, query: $query,
+                createUser: createUser, addFriend: addFriend, createGroup: createGroup
+            )
             List(selection: selectionBinding) {
                 if !matchingRequests.isEmpty {
                     Section("Pending Requests") {
                         ForEach(matchingRequests) { request in
                             RequestRow(request: request, environment: environment)
+                        }
+                    }
+                }
+
+                if !matchingPinnedChats.isEmpty {
+                    Section("Pinned") {
+                        ForEach(matchingPinnedChats) { chat in
+                            pinnedConversationRow(for: chat)
                         }
                     }
                 }
@@ -41,15 +57,7 @@ struct SidebarView: View {
                             )
                             .tag(chat)
                             .contextMenu {
-                                Button("Start Conversation") { environment.selectChat(chat) }
-                                Button("Copy Group ID") { copy(group.id) }
-                                Divider()
-                                Button("Delete Group Chat…", systemImage: "trash", role: .destructive) {
-                                    pendingDestructiveAction = .deleteGroup(
-                                        id: group.id,
-                                        name: group.name
-                                    )
-                                }
+                                unstartedConversationActions(for: chat)
                             }
                         }
                     }
@@ -62,20 +70,7 @@ struct SidebarView: View {
                         )
                         .tag(candidate.chat)
                         .contextMenu {
-                            Button(candidate.isFriend ? "Start Conversation" : "Start Temporary Chat") {
-                                environment.selectChat(candidate.chat)
-                            }
-                            Button("Copy Account ID") { copy(candidate.user.id) }
-
-                            if candidate.isFriend {
-                                Divider()
-                                Button("Remove Friend…", systemImage: "person.badge.minus", role: .destructive) {
-                                    pendingDestructiveAction = .removeFriend(
-                                        id: candidate.chat.peerID,
-                                        name: candidate.user.displayName
-                                    )
-                                }
-                            }
+                            unstartedConversationActions(for: candidate.chat)
                         }
                     }
 
@@ -88,15 +83,24 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
-            .searchable(text: $query, placement: .sidebar, prompt: "Search Conversations")
+            .scrollContentBackground(.hidden)
 
-            if !environment.users.isEmpty {
-                Divider()
-                PersonaBar(
-                    environment: environment,
-                    selectedSettingsTab: $selectedSettingsTab
-                )
+            Divider()
+            HStack(spacing: 8) {
+                ConnectionStatusButton(environment: environment)
+                    .buttonStyle(.plain)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("Connection and persona settings (⌘,)")
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            PersonaBar(environment: environment, selectedSettingsTab: $selectedSettingsTab)
         }
         .confirmationDialog(
             pendingDestructiveAction?.title ?? "Confirm Deletion?",
@@ -129,6 +133,69 @@ struct SidebarView: View {
         )
     }
 
+    @ViewBuilder
+    private func managementAction(for chat: Chat) -> some View {
+        Button("Conversation Details", systemImage: "info.circle") { inspect(chat, .overview) }
+        let capabilities = ConversationContentCapabilities(
+            protocolChoice: environment.effectiveProtocol, scene: chat.scene,
+            canInteract: environment.canInteract(in: chat),
+            role: environment.activeUserID.flatMap { environment.role(of: $0, in: chat.peerID) })
+        if environment.effectiveProtocol == .milky {
+            let isPinned = environment.isPinned(chat)
+            Button(isPinned ? "Unpin Conversation" : "Pin Conversation", systemImage: isPinned ? "pin.slash" : "pin") {
+                Task { await environment.setPinned(!isPinned, in: chat) }
+            }
+        }
+        if !capabilities.sections.isEmpty {
+            Button("Shared Content", systemImage: "rectangle.stack") {
+                inspect(chat, capabilities.supportsFiles ? .files : .overview)
+            }
+        }
+        if environment.supportsGroupProfiles || environment.supportsRequestEvents {
+            Button("Conversation Settings", systemImage: "slider.horizontal.3") { inspect(chat, .settings) }
+        }
+    }
+
+    @ViewBuilder
+    private func pinnedConversationRow(for chat: Chat) -> some View {
+        if let summary = environment.conversations.first(where: { $0.chat == chat }) {
+            ConversationRow(summary: summary, environment: environment)
+                .tag(chat)
+                .contextMenu { conversationActions(for: summary) }
+        } else {
+            SidebarPeerRow(
+                title: environment.conversationTitle(for: chat),
+                detail: chat.scene == .group || environment.isFriend(chat.peerID) ? "No Messages Yet" : "Not a Friend",
+                systemImage: chat.scene == .group ? "person.3" : "person"
+            )
+            .tag(chat)
+            .contextMenu { unstartedConversationActions(for: chat) }
+        }
+    }
+
+    @ViewBuilder
+    private func unstartedConversationActions(for chat: Chat) -> some View {
+        Button(
+            chat.scene.isPrivate && !environment.isFriend(chat.peerID) ? "Start Temporary Chat" : "Start Conversation"
+        ) {
+            environment.selectChat(chat)
+        }
+        Button(chat.scene == .group ? "Copy Group ID" : "Copy Account ID") { copy(displayedID(for: chat)) }
+        managementAction(for: chat)
+        if chat.scene == .group {
+            Divider()
+            Button("Delete Group Chat…", systemImage: "trash", role: .destructive) {
+                pendingDestructiveAction = .deleteGroup(id: chat.peerID, name: environment.conversationTitle(for: chat))
+            }
+        } else if environment.isFriend(chat.peerID) {
+            Divider()
+            Button("Remove Friend…", systemImage: "person.badge.minus", role: .destructive) {
+                pendingDestructiveAction = .removeFriend(
+                    id: chat.peerID, name: environment.conversationTitle(for: chat))
+            }
+        }
+    }
+
     private var destructiveActionPresented: Binding<Bool> {
         Binding(
             get: { pendingDestructiveAction != nil },
@@ -148,10 +215,36 @@ struct SidebarView: View {
             .localizedLowercase
     }
 
+    private var matchingPinnedChats: [Chat] {
+        environment.pinnedChats.filter { chat in
+            guard chat.selfID == environment.botUserID else { return false }
+            if chat.scene == .group {
+                guard environment.groups.contains(where: { $0.id == chat.peerID }) else { return false }
+            } else {
+                guard let peerID = environment.displayedPeerID(for: chat),
+                    environment.users.contains(where: { $0.id == peerID })
+                else { return false }
+            }
+            return normalizedQuery.isEmpty
+                || environment.conversationTitle(for: chat).localizedCaseInsensitiveContains(normalizedQuery)
+                || displayedID(for: chat).localizedCaseInsensitiveContains(normalizedQuery)
+                || environment.conversations.first(where: { $0.chat == chat }).map {
+                    environment.conversationPreview(for: $0).localizedCaseInsensitiveContains(normalizedQuery)
+                } == true
+        }.sorted { lhs, rhs in
+            let comparison = environment.conversationTitle(for: lhs)
+                .localizedStandardCompare(environment.conversationTitle(for: rhs))
+            return comparison == .orderedSame ? lhs.id < rhs.id : comparison == .orderedAscending
+        }
+    }
+
     private var matchingConversations: [ConversationSummary] {
         let visible = environment.conversations.filter { summary in
-            summary.chat.scene == .group
-                || environment.displayedPeerID(for: summary.chat) != nil
+            !environment.isPinned(summary.chat)
+                && (summary.chat.scene == .group || environment.displayedPeerID(for: summary.chat) != nil)
+        }.sorted { lhs, rhs in
+            lhs.lastMessage.time == rhs.lastMessage.time
+                ? lhs.chat.id < rhs.chat.id : lhs.lastMessage.time > rhs.lastMessage.time
         }
         guard !normalizedQuery.isEmpty else { return visible }
         return visible.filter { summary in
@@ -179,7 +272,13 @@ struct SidebarView: View {
                 .filter { $0.chat.scene == .group }
                 .map(\.chat.peerID)
         )
-        let available = environment.groups.filter { !active.contains($0.id) }
+        let available = environment.groups.filter { group in
+            !active.contains(group.id)
+                && chat(scene: .group, peerID: group.id).map { !environment.isPinned($0) } == true
+        }.sorted { lhs, rhs in
+            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            return comparison == .orderedSame ? lhs.id < rhs.id : comparison == .orderedAscending
+        }
         guard !normalizedQuery.isEmpty else { return available }
         return available.filter {
             $0.name.localizedCaseInsensitiveContains(normalizedQuery)
@@ -195,7 +294,7 @@ struct SidebarView: View {
         )
         let available = environment.users.compactMap { user -> SidebarPrivateChatCandidate? in
             guard let chat = environment.privateChat(with: user.id),
-                !activePeerIDs.contains(chat.peerID)
+                !activePeerIDs.contains(chat.peerID), !environment.isPinned(chat)
             else {
                 return nil
             }
@@ -204,6 +303,9 @@ struct SidebarView: View {
                 user: user,
                 isFriend: environment.isFriend(chat.peerID)
             )
+        }.sorted { lhs, rhs in
+            let comparison = lhs.user.displayName.localizedStandardCompare(rhs.user.displayName)
+            return comparison == .orderedSame ? lhs.id < rhs.id : comparison == .orderedAscending
         }
         guard !normalizedQuery.isEmpty else { return available }
         return available.filter { candidate in
@@ -214,6 +316,7 @@ struct SidebarView: View {
 
     private var hasNoMatches: Bool {
         matchingConversations.isEmpty
+            && matchingPinnedChats.isEmpty
             && matchingUnstartedGroups.isEmpty
             && matchingUnstartedPrivateChats.isEmpty
     }
@@ -236,6 +339,7 @@ struct SidebarView: View {
         Button(summary.chat.scene == .group ? "Copy Group ID" : "Copy Account ID") {
             copy(displayedID(for: summary.chat))
         }
+        managementAction(for: summary.chat)
 
         Divider()
 
@@ -466,7 +570,7 @@ private struct PersonaBar: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 64)
+        .frame(height: 62)
         .contentShape(.rect)
         .help("Open persona settings and change the sending identity")
         .accessibilityLabel("Current user: \(activeName). Open sending identity settings")
@@ -474,22 +578,22 @@ private struct PersonaBar: View {
 
     private var profileLabel: some View {
         HStack(spacing: 12) {
-            AvatarView(name: activeName, path: activeAvatar, size: 38)
+            AvatarView(name: activeName, path: activeAvatar, size: 32)
                 .overlay {
                     Circle()
                         .stroke(.separator.opacity(0.45), lineWidth: 0.5)
                 }
 
-            Text(activeName)
-                .font(.system(size: 15, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(activeName).font(.callout.weight(.medium)).lineLimit(1)
+                Text("Speaking as").font(.caption).foregroundStyle(.secondary)
+            }
 
             Spacer(minLength: 8)
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 64)
+        .frame(height: 62)
     }
 
     private var activeUser: User? {

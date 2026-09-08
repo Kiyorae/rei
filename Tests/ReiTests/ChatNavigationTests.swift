@@ -282,6 +282,67 @@ struct ChatNavigationTests {
             environment: environment
         )
     }
+
+    @Test("Replies remain draft context and cannot be sent without message content")
+    func replyDraft() {
+        var draft = ComposerDraft()
+        draft.replyTo = "original"
+        #expect(!draft.isEmpty)
+        #expect(draft.messageContent().isEmpty)
+        draft.text = "answer"
+        #expect(draft.messageContent() == [.reply(messageID: "original"), .text("answer")])
+        draft.replyTo = nil
+        #expect(draft.messageContent() == [.text("answer")])
+    }
+
+    @Test("Protocol capabilities hide unsupported reactions, moderation, and nudges")
+    func protocolCapabilities() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let environment = fixture.environment
+        let group = Chat(scene: .group, peerID: "group", selfID: "bot")
+        let friend = Chat(scene: .friend, peerID: "alice", selfID: "bot")
+        environment.selectedProtocol = .milky
+        #expect(environment.supportsReactions(in: group))
+        #expect(!environment.supportsReactions(in: friend))
+        #expect(environment.supportsNudges(in: friend))
+        #expect(environment.supportsGroupModeration)
+        environment.selectedProtocol = .oneBotV11
+        #expect(!environment.supportsReactions(in: group))
+        #expect(environment.supportsNudges(in: group))
+        #expect(!environment.supportsNudges(in: friend))
+        #expect(environment.supportsGroupModeration)
+        environment.selectedProtocol = .oneBotV12
+        #expect(!environment.supportsReactions(in: group))
+        #expect(!environment.supportsNudges(in: group))
+        #expect(!environment.supportsGroupModeration)
+    }
+
+    @Test("Recall controls follow the selected identity and role hierarchy")
+    func recallPermissions() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let environment = fixture.environment
+        environment.botUserID = "bot"
+        for (id, role) in [("owner", GroupMember.Role.owner), ("admin", .admin), ("member", .member)] {
+            environment.members[.init(groupID: "group", userID: id)] = GroupMember(
+                groupID: "group", userID: id, role: role)
+        }
+        var message = Message(
+            scene: .group, peerID: "group", senderID: "member", selfID: "bot", content: [.text("hello")],
+            direction: .outgoing)
+        environment.activeUserID = "member"
+        #expect(environment.canRecall(message))
+        message.senderID = "admin"
+        #expect(!environment.canRecall(message))
+        environment.activeUserID = "owner"
+        #expect(environment.canRecall(message))
+        message.recalledAt = .now
+        #expect(!environment.canRecall(message))
+        message.recalledAt = nil
+        environment.activeUserID = "outsider"
+        #expect(!environment.canRecall(message))
+    }
 }
 
 @MainActor

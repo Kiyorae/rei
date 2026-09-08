@@ -12,6 +12,7 @@ struct AppKitComposerEditor: NSViewRepresentable {
 
     @Binding var text: String
     let isEditable: Bool
+    var focusRequest: UUID?
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -64,6 +65,13 @@ struct AppKitComposerEditor: NSViewRepresentable {
         textView.onSubmit = context.coordinator.submit
         textView.isEditable = isEditable
 
+        if let focusRequest, context.coordinator.lastFocusRequest != focusRequest,
+            isEditable, let window = textView.window,
+            window.makeFirstResponder(textView)
+        {
+            context.coordinator.lastFocusRequest = focusRequest
+        }
+
         // Never replace the backing string while an input method owns marked text.
         // Doing so discards the candidate session and is the common source of broken
         // Chinese input in hand-rolled SwiftUI/AppKit editors.
@@ -82,6 +90,7 @@ struct AppKitComposerEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: AppKitComposerEditor
+        var lastFocusRequest: UUID?
 
         init(parent: AppKitComposerEditor) {
             self.parent = parent

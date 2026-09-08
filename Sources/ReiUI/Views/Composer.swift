@@ -16,11 +16,13 @@ struct ComposerDraft: Equatable {
     var text = ""
     var mentions: [MentionTarget] = []
     var attachments: [Asset] = []
+    var replyTo: Message.ID?
+    var focusRequest: UUID?
     var attachmentImportCount = 0
     var isSending = false
 
     var isEmpty: Bool {
-        text.isEmpty && mentions.isEmpty && attachments.isEmpty
+        text.isEmpty && mentions.isEmpty && attachments.isEmpty && replyTo == nil
             && attachmentImportCount == 0 && !isSending
     }
 
@@ -40,6 +42,8 @@ struct ComposerDraft: Equatable {
             content.append(.text(trimmed))
         }
         content.append(contentsOf: attachments.map(Self.segment(for:)))
+        // A reply is context, not a sendable message on its own.
+        if !content.isEmpty, let replyTo { content.insert(.reply(messageID: replyTo), at: 0) }
         return content
     }
 
@@ -82,20 +86,34 @@ struct Composer: View {
 
     @State private var isTargetedForDrop = false
     @State private var isPickingFiles = false
+    @State private var showingMentions = false
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             VStack(alignment: .leading, spacing: 8) {
+                if let replyTo = draft.replyTo {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrowshape.turn.up.left")
+                            .foregroundStyle(.secondary)
+                        QuotedMessageView(messageID: replyTo, environment: environment, chat: chat)
+                        Spacer(minLength: 0)
+                        Button {
+                            draft.replyTo = nil
+                        } label: {
+                            Label("Cancel Reply", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Cancel reply")
+                    }
+                }
                 if !draft.mentions.isEmpty || !draft.attachments.isEmpty {
                     segmentStrip
                 }
 
-                HStack(alignment: .bottom, spacing: 8) {
-                    editor
-                    actionRow
-                }
+                editor
+                actionRow
             }
-            .padding(10)
+            .padding(14)
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
             .overlay {
                 RoundedRectangle(cornerRadius: 18)
@@ -136,9 +154,10 @@ struct Composer: View {
             AppKitComposerEditor(
                 text: $draft.text,
                 isEditable: !draft.isSending,
+                focusRequest: draft.focusRequest,
                 onSubmit: submit
             )
-            .frame(minHeight: 40, idealHeight: 56, maxHeight: 112)
+            .frame(height: 72)
 
             if draft.text.isEmpty {
                 Text("Message…")
@@ -153,8 +172,8 @@ struct Composer: View {
         .accessibilityLabel("Message")
     }
 
-    /// The editor and the actions stay bottom-anchored as the draft grows, while
-    /// controls with different intrinsic heights share one visual center line.
+    /// Attachment and mention controls stay below the text, leaving the editor
+    /// the entire width of the conversation at every split-view size.
     private var actionRow: some View {
         HStack(spacing: 8) {
             if chat.scene == .group {
@@ -167,8 +186,8 @@ struct Composer: View {
                 Label("Attach Files", systemImage: "paperclip")
                     .labelStyle(.iconOnly)
             }
-            .buttonStyle(.borderless)
-            .fixedSize()
+            .buttonStyle(.plain)
+            .frame(width: 28, height: 28)
             .help("Attach files")
             .disabled(isIngestingFiles)
 
@@ -178,40 +197,31 @@ struct Composer: View {
                     .help("Importing attachments")
             }
 
+            Spacer(minLength: 12)
             Button("Send", systemImage: "arrow.up", action: submit)
+                .labelStyle(.iconOnly)
                 .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .accessibilityLabel("Send")
                 .disabled(!canSend)
                 .help("Send with Return; insert a line break with Shift-Return")
         }
-        .fixedSize()
     }
 
     private func mentionMenu(chat: Chat) -> some View {
-        Menu {
-            ForEach(mentionableUsers) { user in
-                Button(
-                    "@\(environment.displayName(for: user.id, in: chat)) · \(user.id)"
-                ) {
-                    draft.addMention(userID: user.id)
-                }
-                .disabled(draft.mentions.contains(MentionTarget(userID: user.id)))
-            }
-
-            if !mentionableUsers.isEmpty {
-                Divider()
-            }
-
-            Button("@everyone") {
-                draft.addMention(userID: nil)
-            }
-            .disabled(draft.mentions.contains(MentionTarget(userID: nil)))
-        } label: {
-            Label("Mention Group Member", systemImage: "at")
-                .labelStyle(.iconOnly)
+        Button("Mention Group Member", systemImage: "at") {
+            showingMentions = true
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .labelStyle(.iconOnly)
+        .buttonStyle(.plain)
+        .frame(width: 28, height: 28)
         .help("Mention a group member")
+        .popover(isPresented: $showingMentions) {
+            ComposerMentionPicker(environment: environment, chat: chat, draft: $draft) {
+                showingMentions = false
+            }
+        }
     }
 
     private var segmentStrip: some View {

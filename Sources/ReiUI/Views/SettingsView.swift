@@ -278,6 +278,21 @@ private struct ConnectionSettingsTab: View {
                 }
             }
 
+            if protocolChoice != .milky {
+                Section {
+                    TextField("Resource Host", text: binding(\.resourceHost), prompt: Text("127.0.0.1"))
+                        .help("The local address used to listen for and publish attachment downloads")
+                } header: {
+                    Text("Media Resources")
+                } footer: {
+                    Text(
+                        "Defaults to 127.0.0.1 for bots on this Mac. For a remote bot, enter this Mac’s address that the bot can reach. Media downloads use a separate, automatically assigned port."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
             if protocolChoice == .milky {
                 Section {
                     ForEach(settings.milkyWebhookURLs.indices, id: \.self) { index in
