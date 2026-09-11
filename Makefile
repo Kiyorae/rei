@@ -5,6 +5,7 @@ BUILD_CONFIGURATION ?= Release
 BUILD_DESTINATION ?= generic/platform=macOS
 BUILD_ARCHS ?= arm64 x86_64
 DERIVED_DATA_PATH ?= $(CURDIR)/.build/xcode
+TEST_FILTER ?=
 
 ARCHIVE_PATH ?= $(CURDIR)/.build/archive/Rei.xcarchive
 EXPORT_PATH ?= $(CURDIR)/.build/export
@@ -164,7 +165,7 @@ show-settings: verify-xcode
 
 test: verify-xcode
 	BUILD_ARCHS="$$(uname -m)" ./script/build_media_tools.sh
-	REI_TEST_FFMPEG="$(CURDIR)/.build/media-dependencies/bundle/ffmpeg" swift test -Xswiftc -warnings-as-errors
+	REI_TEST_FFMPEG="$(CURDIR)/.build/media-dependencies/bundle/ffmpeg" swift test -Xswiftc -warnings-as-errors $(if $(TEST_FILTER),--filter "$(TEST_FILTER)")
 
 media-tools: verify-xcode
 	./script/build_media_tools.sh
