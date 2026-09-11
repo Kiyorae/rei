@@ -1,7 +1,7 @@
 import Foundation
 
-/// Credits for shipped media code and its build tool. Versions come from the
-/// lockfile embedded alongside the executable, so About describes this build.
+/// Credits and bundled notices for shipped components. Media tool versions come
+/// from their build lockfile; Swift package revisions are pinned by SwiftPM.
 struct ComponentAcknowledgement: Identifiable {
     let id: String
     let name: String
@@ -72,6 +72,32 @@ struct ComponentAcknowledgement: Identifiable {
                 "pkgconf", "pkgconf", "Build tool only", "https://github.com/pkgconf/pkgconf",
                 "ISC", "pkgconf-COPYING", "https://github.com/pkgconf/pkgconf/blob/pkgconf-3.0.5/COPYING"
             ),
+        ] + markdownComponents
+    }
+
+    private static var markdownComponents: [Self] {
+        let components = [
+            ("MarkdownView", "Native Markdown rendering", "Innei/MarkdownView", "MIT", "LICENSE"),
+            ("Litext", "Native text layout and selection", "Lakr233/Litext", "MIT", "LICENSE"),
+            ("Highlightr", "Code syntax highlighting", "raspu/Highlightr", "MIT", "LICENSE"),
+            ("highlight.js", "Syntax highlighting engine", "highlightjs/highlight.js", "BSD-3-Clause", "LICENSE"),
+            ("SwiftMath", "Math typesetting", "mgriebling/SwiftMath", "MIT", "LICENSE"),
+            ("swift-cmark", "Markdown parsing", "swiftlang/swift-cmark", "BSD-2-Clause and bundled notices", "COPYING"),
+            (
+                "swift-collections", "Collection data structures", "apple/swift-collections",
+                "Apache-2.0 with Swift exception", "LICENSE.txt"
+            ),
+            ("LRUCache", "Rendering cache", "nicklockwood/LRUCache", "MIT", "LICENSE.md"),
         ]
+        return components.map { name, purpose, repository, license, filename in
+            let homepage = URL(string: "https://github.com/" + repository)!
+            let website = homepage.appendingPathComponent("blob/HEAD/" + filename)
+            return Self(
+                id: name, name: name, version: nil, purpose: purpose, homepage: homepage, license: license,
+                licenseURL: Bundle.module.url(forResource: name, withExtension: "txt", subdirectory: "Licenses")
+                    ?? website,
+                licenseWebsite: website
+            )
+        }
     }
 }

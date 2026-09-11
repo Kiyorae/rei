@@ -8,7 +8,9 @@ let package = Package(
         .library(name: "ReiLogging", targets: ["ReiLogging"]),
         .library(name: "ReiUI", targets: ["ReiUI"]),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/Innei/MarkdownView.git", revision: "757b6fcc4b3095e84f4c0613f4b98147f49dcd09")
+    ],
     targets: [
         .target(name: "ReiLogging"),
 
@@ -26,13 +28,14 @@ let package = Package(
         .target(name: "ReiOneBot", dependencies: ["ReiProtocol"]),
         .target(name: "ReiMilky", dependencies: ["ReiProtocol"]),
 
-        // AppKit/SwiftUI user interface.
+        // AppKit user interface.
         .target(
             name: "ReiUI",
             dependencies: [
                 "ReiCore", "ReiProtocol", "ReiOneBot", "ReiMilky", "ReiLogging",
+                .product(name: "MarkdownView", package: "MarkdownView"),
             ],
-            resources: [.copy("Resources/Showcase")]
+            resources: [.copy("Resources/Showcase"), .copy("Resources/Licenses")]
         ),
 
         .testTarget(
