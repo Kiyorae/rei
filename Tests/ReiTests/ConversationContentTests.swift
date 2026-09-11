@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import ReiCore
 import ReiProtocol
-import SwiftUI
 import Testing
 
 @testable import ReiLogging
@@ -225,13 +224,12 @@ struct ConversationContentTests {
         model.folders = try await fixture.store.folders(groupID: "group")
         model.highlightedMessages = [message]
         let panels = [
-            ("announcements", AnyView(ConversationAnnouncementsView(model: model))),
-            ("files", AnyView(ConversationFilesView(model: model))),
-            ("highlights", AnyView(ConversationHighlightsView(model: model, didReveal: {}))),
+            ("announcements", ConversationContentPane(model: model, section: .announcements)),
+            ("files", ConversationContentPane(model: model, section: .files)),
+            ("highlights", ConversationContentPane(model: model, section: .highlights)),
         ]
         for (name, panel) in panels {
-            let content = panel.frame(width: 740, height: 500).background(Color(nsColor: .windowBackgroundColor))
-            let view = NSHostingView(rootView: content)
+            let view = panel.view
             view.frame = CGRect(origin: .zero, size: CGSize(width: 740, height: 500))
             let window = NSWindow(contentRect: view.bounds, styleMask: .borderless, backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

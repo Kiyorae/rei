@@ -94,7 +94,7 @@ public enum ProtocolSessionError: Error, LocalizedError, Sendable {
 /// Carries the payload verbatim rather than a rendered form, because the inspector
 /// exists for the case where a framework author needs to see exactly what crossed
 /// the wire.
-public struct TrafficEntry: Identifiable, Sendable {
+public struct TrafficEntry: Identifiable, Equatable, Sendable {
     public enum Direction: Sendable, Hashable {
         /// A call the framework made.
         case inboundCall

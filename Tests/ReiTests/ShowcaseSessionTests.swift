@@ -3,7 +3,6 @@ import AppKit
 import ImageIO
 import ReiCore
 import ReiProtocol
-import SwiftUI
 import Testing
 
 @testable import ReiLogging
@@ -12,6 +11,51 @@ import Testing
 @Suite("Showcase Mode", .serialized)
 @MainActor
 struct ShowcaseSessionTests {
+    @Test("The sidebar keeps group and direct conversation identities distinct")
+    func sidebarIdentities() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let session = fixture.session
+        let sidebar = SidebarViewController(environment: session.environment, showcase: session)
+        let window = NSWindow(contentViewController: sidebar)
+        window.setContentSize(NSSize(width: 280, height: 700))
+        window.isReleasedWhenClosed = false
+        window.orderBack(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        try await session.prepare()
+        for _ in 0..<4 {
+            try await session.advance()
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        sidebar.view.layoutSubtreeIfNeeded()
+        func descendants<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants(type, in: $0) }
+        }
+        let table = try #require(descendants(NSTableView.self, in: sidebar.view).first)
+        func renderedTitles() -> [String] {
+            (0..<table.numberOfRows).flatMap { row -> [String] in
+                guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: true) else { return [] }
+                return descendants(NSTextField.self, in: cell).map(\.stringValue)
+            }
+        }
+        func matchesExpectedTitles(_ titles: [String]) -> Bool {
+            titles.filter { $0 == "Akame · 展示空间" }.count == 1 && titles.filter { $0 == "Akame" }.count == 1
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        var titles = renderedTitles()
+        while !matchesExpectedTitles(titles), clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+            sidebar.view.layoutSubtreeIfNeeded()
+            titles = renderedTitles()
+        }
+        #expect(matchesExpectedTitles(titles), "Rendered sidebar titles: \(titles)")
+    }
+
     @Test("The demo connects a real local Milky client, measures API RTT, receives events, and closes cleanly")
     func liveConnection() async throws {
         let fixture = try Fixture()
@@ -168,8 +212,12 @@ struct ShowcaseSessionTests {
         let gif = try ShowcaseMedia.resource("Akame-Spin", extension: "gif")
         let bytes = try Data(contentsOf: gif)
         let animation = try #require(NSImage(data: bytes))
-        let controller = NSHostingController(
-            rootView: AnimatedAttachmentImage(image: animation, animates: true).frame(width: 240, height: 240))
+        let controller = NSViewController()
+        let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+        imageView.image = animation
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.animates = true
+        controller.view = imageView
         let window = NSWindow(contentViewController: controller)
         window.isReleasedWhenClosed = false
         window.orderBack(nil)
@@ -198,10 +246,7 @@ struct ShowcaseSessionTests {
         let session = fixture.session
         try await session.prepare()
         session.isPlaying = false
-        let controller = NSHostingController(
-            rootView: RootView(
-                environment: session.environment, selectedSettingsTab: .constant(.connection), showcase: session
-            ))
+        let controller = WorkspaceViewController(environment: session.environment, showcase: session)
         let window = NSWindow(contentViewController: controller)
         window.isReleasedWhenClosed = false
         window.setContentSize(CGSize(width: 1320, height: 780))
@@ -214,7 +259,7 @@ struct ShowcaseSessionTests {
         for _ in 0..<9 { try await session.advance() }
         try await Task.sleep(for: .milliseconds(1600))
         func scrollViews(in view: NSView) -> [NSScrollView] {
-            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+            (view as? TranscriptScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
         }
         let transcript = try #require(
             scrollViews(in: controller.view).max {
@@ -262,10 +307,7 @@ struct ShowcaseSessionTests {
         let session = fixture.session
         try await session.prepare()
         session.isPlaying = false
-        let controller = NSHostingController(
-            rootView: RootView(
-                environment: session.environment, selectedSettingsTab: .constant(.connection), showcase: session
-            ))
+        let controller = WorkspaceViewController(environment: session.environment, showcase: session)
         let window = NSWindow(contentViewController: controller)
         window.isReleasedWhenClosed = false
         window.setContentSize(CGSize(width: 1320, height: 900))
@@ -276,8 +318,17 @@ struct ShowcaseSessionTests {
         }
         for _ in 0..<4 { try await session.advance() }
         func animatedImage(in view: NSView) -> NSImageView? {
-            if let image = view as? NSImageView, image.animates { return image }
-            return view.subviews.lazy.compactMap { animatedImage(in: $0) }.first
+            if let image = view as? NSImageView, image.animates, !image.visibleRect.isEmpty,
+                image.image?.representations.contains(where: {
+                    (($0 as? NSBitmapImageRep)?.value(forProperty: .frameCount) as? Int ?? 0) > 1
+                }) == true
+            {
+                return image
+            }
+            for child in view.subviews {
+                if let image = animatedImage(in: child) { return image }
+            }
+            return nil
         }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
@@ -298,10 +349,7 @@ struct ShowcaseSessionTests {
         let session = fixture.session
         try await session.prepare()
         session.isPlaying = false
-        let controller = NSHostingController(
-            rootView: RootView(
-                environment: session.environment, selectedSettingsTab: .constant(.connection), showcase: session
-            ))
+        let controller = WorkspaceViewController(environment: session.environment, showcase: session)
         let window = NSWindow(contentViewController: controller)
         window.isReleasedWhenClosed = false
         window.setContentSize(CGSize(width: 1320, height: 780))
@@ -316,7 +364,7 @@ struct ShowcaseSessionTests {
         #expect(await session.environment.revealMessage(id: first.id, in: session.currentChat))
         try await Task.sleep(for: .milliseconds(900))
         func scrollViews(in view: NSView) -> [NSScrollView] {
-            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+            (view as? TranscriptScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
         }
         let transcript = try #require(
             scrollViews(in: controller.view).max {

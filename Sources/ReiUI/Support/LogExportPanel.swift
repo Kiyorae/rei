@@ -1,6 +1,6 @@
 import AppKit
 
-/// The narrow AppKit boundary used by the SwiftUI log console for directory choice.
+/// The log console's native directory picker.
 @MainActor
 enum LogExportPanel {
     static func chooseDirectory() -> URL? {

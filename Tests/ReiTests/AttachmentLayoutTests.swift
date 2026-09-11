@@ -1,6 +1,5 @@
 import AppKit
 import ReiCore
-import SwiftUI
 import Testing
 
 @testable import ReiLogging
@@ -49,22 +48,28 @@ struct AttachmentLayoutTests {
                 content: [.text("The fourth node remains visible when expanded.")]
             ),
         ]
-        let content = VStack(alignment: .leading, spacing: 18) {
-            Text("Media and Forwarded Messages").font(.title2.weight(.semibold))
-            HStack(alignment: .top, spacing: 18) {
-                MediaSegmentView(asset: voice, environment: environment, duration: 12)
-                MediaSegmentView(asset: video, environment: environment, isVideo: true)
+        let forward = ForwardMessagesView(nodes: nodes, environment: environment, chat: chat)
+        func expand(_ view: NSView) throws {
+            if let forward = view as? ForwardMessagesView,
+                let button = forward.arrangedSubviews.first as? NSButton
+            {
+                try activate(button)
             }
-            FileSegmentView(asset: file, environment: environment)
-            ForwardSegmentView(nodes: nodes, environment: environment, chat: chat)
-                .disclosureGroupStyle(ExpandedLayoutStyle())
+            for child in view.subviews { try expand(child) }
         }
-        .padding(24)
-        .frame(width: 750, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .environment(\.colorScheme, .light)
-        let view = NSHostingView(rootView: content)
-        view.frame = CGRect(origin: .zero, size: view.fittingSize)
+        try expand(forward)
+        let view = NativeUI.column(
+            [
+                NativeUI.label("Media and Forwarded Messages", style: .title2),
+                NativeUI.row([
+                    AttachmentContentView(asset: voice, environment: environment, kind: .audio(12)),
+                    AttachmentContentView(asset: video, environment: environment, kind: .video),
+                ]),
+                AttachmentContentView(asset: file, environment: environment, kind: .file),
+                forward,
+            ], spacing: 18)
+        view.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
+        view.frame = NSRect(x: 0, y: 0, width: 750, height: 900)
         let window = NSWindow(contentRect: view.bounds, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -78,14 +83,4 @@ struct AttachmentLayoutTests {
         }
     }
 
-    /// Forces lazy disclosure contents to participate in the rendering check,
-    /// including nested bundles and nodes beyond the three-line collapsed summary.
-    private struct ExpandedLayoutStyle: DisclosureGroupStyle {
-        func makeBody(configuration: Configuration) -> some View {
-            VStack(alignment: .leading, spacing: 8) {
-                configuration.label
-                configuration.content
-            }
-        }
-    }
 }

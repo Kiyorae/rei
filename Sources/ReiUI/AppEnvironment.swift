@@ -10,7 +10,7 @@ import ReiProtocol
 ///
 /// One `@Observable` object the whole window reads from. It owns the store, the
 /// platform service, and whichever protocol session is currently running, and it
-/// bridges the async streams those publish into properties SwiftUI can observe.
+/// bridges their async streams into observable properties for AppKit controllers.
 @Observable
 @MainActor
 public final class AppEnvironment {
@@ -27,6 +27,7 @@ public final class AppEnvironment {
     var messageReveal: MessageReveal?
     /// Messages in the selected conversation, oldest first.
     public var messages: [Message] = []
+    var isLoadingMessages = false
     public var pendingRequests: [PendingRequest] = []
     /// Friend relationships owned by the current bot account.
     public var friendships: [Friendship] = []
@@ -209,6 +210,7 @@ public final class AppEnvironment {
         chatObservation?.cancel()
         memberObservation?.cancel()
         messages = []
+        isLoadingMessages = chat != nil
         guard let chat else {
             appLog.record(.operationCompleted(.closeChat))
             return
@@ -217,6 +219,7 @@ public final class AppEnvironment {
         chatObservation = observe(store.observeMessages(in: chat)) { [weak self] value in
             guard self?.selectedChat == chat else { return }
             self?.messages = value
+            self?.isLoadingMessages = false
         }
         if chat.scene == .group {
             memberObservation = observe(store.observeMembers(groupID: chat.peerID)) { [weak self] value in
