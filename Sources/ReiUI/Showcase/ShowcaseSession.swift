@@ -202,7 +202,28 @@ public final class ShowcaseSession {
             try await send(
                 [
                     .text(
-                        "长消息也要舒展地阅读。\n\n窗外的光慢慢移过桌面，新的消息落进聊天记录。每个人的头像、角色与时间各有位置，长短文字自然换行。\n\nEnglish · 日本語 · 简体中文\n☀️ 🌻 💛  数字 0123456789\n\n滚动时，玻璃输入区和操作控件保留自己的层次。"
+                        """
+                        ## Markdown · 舒展地阅读
+
+                        **强调重点**、*轻声补充*，也可以写 `inline code`。
+
+                        > 窗外的光慢慢移过桌面，新的消息落进聊天记录。
+
+                        - [x] 原生文本选择
+                        - [x] 中英文混排 · English · 日本語 🌿
+
+                        ```swift
+                        let message = "Hello, Rei"
+                        print(message)
+                        ```
+
+                        | 组件 | 状态 |
+                        | --- | --- |
+                        | AppKit 聊天列表 | 已就绪 |
+                        | Markdown 排版 | 已就绪 |
+
+                        [查看 Rei 项目](https://github.com/Kiyorae/rei)
+                        """
                     )
                 ], in: chat, from: Self.friendID)
         case 15:

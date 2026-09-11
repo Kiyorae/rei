@@ -17,7 +17,7 @@ risk-control system to worry about, and you do not need another person to help r
 
 Rei's inspiration and original design come from the upstream
 [project by Akirami](https://github.com/A-kirami/matcha). Rei is an independent native macOS
-implementation: the upstream project uses Vue and Tauri, while Rei uses AppKit and SwiftUI and
+implementation: the upstream project uses Vue and Tauri, while Rei uses AppKit and
 uses Apple system frameworks alongside bundled media codecs.
 
 ## Releases
@@ -123,11 +123,10 @@ operations, protocol-specific behavior, persistence guarantees, and test coverag
 - `ReiLogging` provides typed application diagnostics written to OSLog, rotating JSON Lines files,
   and a bounded in-memory window. Log events cannot contain access tokens, message bodies, or raw
   protocol payloads.
-- `ReiUI` provides the SwiftUI and AppKit interface, including a dedicated application log
+- `ReiUI` provides the AppKit interface, including a dedicated application log
   console. Raw protocol traffic remains available in a separate inspector.
-- `App/ReiApplication.swift` is the composition root for the Xcode application target. It owns
-  the application lifecycle, window scenes, and menu bar; the remaining implementation stays in
-  SwiftPM modules.
+- `App/ReiApplication.swift` 启动原生应用，并将生命周期、窗口和菜单管理交给
+  `ReiUI` 中的 `ReiApplicationDelegate`；其余实现保留在 SwiftPM 模块中。
 
 The key invariant lives in `PlatformService`: every state change passes through it, whether it was
 triggered by a person pressing Send in the app or by a framework calling `send_group_message`.
@@ -300,9 +299,9 @@ written to the repository.
 
 ## Dependencies
 
-The Swift package has no external package dependencies. Persistence uses SwiftData; the interface
-uses SwiftUI and AppKit; networking, cryptography, and file type identification use
-Network.framework, CryptoKit, and UniformTypeIdentifiers.
+Swift 包通过 MarkdownView 及其传递依赖提供 Markdown 渲染。持久化使用 SwiftData，
+界面使用 AppKit；网络、加密与文件类型识别分别使用 Network.framework、CryptoKit
+和 UniformTypeIdentifiers。
 
 Media conversion uses the vendored SILK C decoder and a bundled FFmpeg executable built with
 LAME, OpenCORE AMR, and Speex. Versions and source checksums are pinned in
@@ -310,6 +309,20 @@ LAME, OpenCORE AMR, and Speex. Versions and source checksums are pinned in
 tool. The first media build requires network access to download upstream sources. No Homebrew
 installation is required. See [bundled media tools](RELEASING.md#bundled-media-tools) and the
 [SILK notice](Sources/CSilk/NOTICE.md) for source, build, and licensing details.
+
+## 原生聊天与 Markdown
+
+聊天列表使用 AppKit `NSTableView` 管理消息复用、滚动与入场动画，三栏工作区使用
+`NSSplitViewController`。消息正文通过 AppKit MarkdownView 显示标题、列表、引用、
+强调、链接、代码高亮、表格和数学公式；存储、协议发送和 Copy Text 保留原始 Markdown。
+网页和邮件链接可点击打开。聊天仍使用 Rei 自己的图片、音视频和文件附件。
+
+新消息、发送反馈、回应计数、附件与提及以及检查器切换包含动效，并遵循 macOS
+“减少动态效果”设置。首次加载历史不播放入场动画，浏览历史时新消息不抢走阅读位置。
+
+MarkdownView 与相关 Swift 包由 `Package.resolved` 固定版本；许可证位于
+[`Resources/Licenses`](Sources/ReiUI/Resources/Licenses)，也可从 About 页面查看。
+设计与验收边界见 [UI 改造说明](docs/ui-modernization.md)。
 
 ## License
 

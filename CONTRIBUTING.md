@@ -31,6 +31,14 @@ make build
 make analyze
 ```
 
+仅验证一个测试套件时，可使用 `make test TEST_FILTER=NativeChatPresentationTests`。
+提交前仍需运行完整检查。
+
+AppKit 控件测试通过 `activate(_:)` 发送真实的 target/action。不要在 SwiftPM 的异步测试进程里使用
+`performClick`：它的阻塞动画可能停止主运行循环，造成测试未完成却以 0 退出。
+鼠标反馈、玻璃材质和 Quick Look 的打开／关闭需要在 `./script/build_and_run.sh --demo --verify`
+启动的应用里验证。
+
 `make test` runs the SwiftPM test target. `make build` and `make analyze` exercise the Xcode
 application target as an unsigned Universal 2 Release build. Neither command creates a
 distribution-ready application.
